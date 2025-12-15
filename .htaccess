@@ -1,0 +1,4 @@
+# Desativa o mecanismo de reescrita de URL
+RewriteEngine Off
+
+Header set Access-Control-Allow-Origin "*"

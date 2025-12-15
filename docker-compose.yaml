@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  motel_reports_web:
+    build: .
+    restart: always
+    ports:
+      - "8080:80" # Acessar via http://localhost:8080
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+    environment:
+      # As variáveis são carregadas do arquivo .env
+      # Se quiser sobrescrever alguma específica aqui, pode descomentar:
+      # MOTEL_DB_HOST: "mysql_servico_unico"
+      # ...
