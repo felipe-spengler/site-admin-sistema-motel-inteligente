@@ -3,7 +3,7 @@
 
 // --- CONFIGURAÇÃO: COLOQUE SEU ACCESS TOKEN REAL ---
 // Seu Access Token que começa com APP_USR-...
-const ACCESS_TOKEN = getenv('MP_ACCESS_TOKEN') ?: '';
+define('ACCESS_TOKEN', getenv('MP_ACCESS_TOKEN') ?: '');
 
 // URL para onde o Mercado Pago irá notificar a aprovação (WEBHOOK)
 const NOTIFICATION_URL = 'https://motelinteligente.com/api/webhook_notificacao.php';

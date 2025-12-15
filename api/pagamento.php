@@ -9,8 +9,8 @@ require __DIR__ . '/vendor/autoload.php'; // Caminho para o autoload do Mercado 
 date_default_timezone_set('America/Sao_Paulo');
 
 // Constantes do Mercado Pago (TESTE)
-const MP_ACCESS_TOKEN = getenv('MP_ACCESS_TOKEN') ?: '';
-const MP_PUBLIC_KEY = getenv('MP_PUBLIC_KEY') ?: '';
+define('MP_ACCESS_TOKEN', getenv('MP_ACCESS_TOKEN') ?: '');
+define('MP_PUBLIC_KEY', getenv('MP_PUBLIC_KEY') ?: '');
 const URL_BASE_WEBHOOK = 'https://motelinteligente.com/api/webhook_sistema.php';
 
 // 1. Pega parâmetros
