@@ -1,7 +1,8 @@
 <?php
 include 'conexao2.php';
 
-function loadBackgroundImage($conexao) {
+function loadBackgroundImage($conexao)
+{
     $query = "SELECT imagem FROM imagens WHERE nome_da_imagem = 'direcionamento'";
 
     try {
@@ -19,55 +20,56 @@ function loadBackgroundImage($conexao) {
             $stmt->close(); // Liberando o resultado
             echo "Nenhuma imagem encontrada";
         }
-    } catch(Exception $e) {
+    } catch (Exception $e) {
         // Em caso de erro, exiba a mensagem de erro
         echo "Erro: " . $e->getMessage();
     }
 }
 
-function getIp($conexao) {
-    // Query SQL para obter o IP da tabela configuracoes
-    $sql = "SELECT meuip FROM configuracoes";
-    $result = $conexao->query($sql);
+// Função segura que insere no banco de comandos (Toledo) e dispara MQTT
+function enviaDados($numeroQuarto, $conexaoLocalNaoUsada)
+{ // Mantendo assinatura para compatibilidade, mas a conexão local não é usada para comando
 
-    // Verifique se algum resultado foi retornado
-    if ($result->num_rows > 0) {
-        // Obtenha o resultado como um array associativo
-        $row = $result->fetch_assoc();
-        $meuip = $row["meuip"];
-        $result->close(); // Liberando o resultado
-        return $meuip;
-    } else {
-        $result->close(); // Liberando o resultado
-        return null; // Ou outra indicação de erro, se preferir
-    }
-}
+    $filial = "toledo";
+    $tabela = "comandos_toledo";
+    $comando = "locar " . $numeroQuarto;
 
-function enviaDados($dados, $conexao) {
-    $ip = getIp($conexao);
-    
-    if ($ip !== null) {
-        $url = 'http://' . $ip . ':1521/receberNumeroQuarto';
-        
-        // Inicializa o cURL
-        $ch = curl_init();
+    // 1. Incluir arquivos necessários (caminho relativo)
+    include_once 'conexao_comando.php';
+    include_once 'mqtt_helper.php';
 
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, 1);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, "locar ". $dados); 
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    try {
+        // 2. Conexão dedicada para comandos
+        $pdo = conectarAoBancoComandosPDO();
 
-        curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-Type: text/plain'));
+        if (!$pdo) {
+            error_log("Autoatendimento: Falha na conexão com banco de comandos.");
+            return;
+        }
 
-        $response = curl_exec($ch);
+        // 3. Insere no banco para histórico e redundância
+        // Nota: id_unidade usamos 0 ou um ID fixo para 'autoatendimento' se quiser identificar a origem
+        $sql = "INSERT INTO {$tabela} (id_unidade, comando, executado, criado_em) VALUES (999, :comando, 0, NOW())";
+        $stmt = $pdo->prepare($sql);
 
-        if(curl_errno($ch)){
-            echo 'Erro ao fazer a solicitação: ' . curl_error($ch);
-        } 
+        if ($stmt->execute([':comando' => $comando])) {
+            $lastId = $pdo->lastInsertId();
 
-        curl_close($ch);
-    } else {
-        echo "Não foi possível obter o endereço IP.";
+            // 4. Dispara MQTT (Coração do sistema em tempo real)
+            $payload = json_encode([
+                "id" => $lastId,
+                "comando" => $comando
+            ]);
+
+            publicarComandoMqtt($filial, $payload);
+            error_log("Autoatendimento: Comando '{$comando}' enviado com sucesso (ID: {$lastId}).");
+
+        } else {
+            error_log("Autoatendimento: Erro ao inserir comando no banco.");
+        }
+
+    } catch (Exception $e) {
+        error_log("Autoatendimento: Exceção crítica - " . $e->getMessage());
     }
 }
 
@@ -77,10 +79,10 @@ $numeroQuarto = 0;
 $tpQuarto = 0;
 if (isset($_GET['dados']) && isset($_GET['tipoQuarto'])) {
     $numeroQuarto = ($_GET['dados']);
-    $tpQuarto = ($_GET['tipoQuarto']) ;
+    $tpQuarto = ($_GET['tipoQuarto']);
     enviaDados($numeroQuarto, $conexao);
 
-}else{
+} else {
     echo "deu else";
 }
 
@@ -89,6 +91,7 @@ $conexao->close();
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -100,24 +103,31 @@ $conexao->close();
             display: flex;
             justify-content: center;
             align-items: center;
-            background-color: #f0f0f0; /* Cor de fundo padrão */
+            background-color: #f0f0f0;
+            /* Cor de fundo padrão */
         }
+
         #background {
             position: fixed;
             top: 0;
             left: 0;
-            width: 100vw; /* Largura ocupando 100% da largura da tela */
-            height: 100vh; /* Altura ocupando 100% da altura da tela */
-            background-size: 100% 100%; /* Estica a imagem para cobrir toda a largura e altura do contêiner */
+            width: 100vw;
+            /* Largura ocupando 100% da largura da tela */
+            height: 100vh;
+            /* Altura ocupando 100% da altura da tela */
+            background-size: 100% 100%;
+            /* Estica a imagem para cobrir toda a largura e altura do contêiner */
             background-repeat: no-repeat;
             background-position: center;
             z-index: -1;
         }
+
         #content {
             text-align: center;
             color: #333;
-            margin-top: 150px; 
+            margin-top: 150px;
         }
+
         #rodape {
             position: fixed;
             bottom: 10px;
@@ -128,6 +138,7 @@ $conexao->close();
         }
     </style>
 </head>
+
 <body>
     <div id="background"></div>
     <div id="content">
@@ -137,22 +148,23 @@ $conexao->close();
     </div>
     <div id="rodape">
         <p style="color: white; font-size: 36px;">
-        <?php
+            <?php
             date_default_timezone_set('America/Sao_Paulo');
-            echo date('d/m/Y H:i:s');?>   
+            echo date('d/m/Y H:i:s'); ?>
         </p>
     </div>
     <script>
         // Carrega a imagem ao carregar a página
-        window.onload = function() {
+        window.onload = function () {
             var background = document.getElementById('background');
             background.style.backgroundImage = 'url("<?php echo $backgroundImage; ?>")'; // Substitua $backgroundImage pela URL da imagem
         };
         // Espera 30 segundos antes de redirecionar
-        setTimeout(function() {
+        setTimeout(function () {
             window.location.href = 'autoatend.php';
         }, 30000); // 30 segundos
     </script>
 
 </body>
+
 </html>
