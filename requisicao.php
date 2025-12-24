@@ -11,7 +11,7 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
 
     // Lê o parâmetro 'dados' da URL. Exemplo: 'disponibilizar 2'
     $acaoCompleta = filter_input(INPUT_GET, 'dados', FILTER_SANITIZE_SPECIAL_CHARS);
-    
+
     // 1. TENTA LER A FILIAL DA URL
     $filial = filter_input(INPUT_GET, 'filial', FILTER_SANITIZE_SPECIAL_CHARS);
 
@@ -53,32 +53,32 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
     }
 
     // 6. Inclusão da CONEXÃO DEDICADA (PDO)
-    include 'conexao_comando.php'; 
+    include 'conexao_comando.php';
 
     $pdo = null;
-    $stmt = null;    
+    $stmt = null;
 
     try {
         // Usa a função de conexão PDO
         $pdo = conectarAoBancoComandosPDO();
-        
+
         if (!$pdo) {
-             // Erro já logado dentro de conectarAoBancoComandosPDO()
-             error_log("Erro crítico: Conexão retornou NULL durante a requisicao.");
+            // Erro já logado dentro de conectarAoBancoComandosPDO()
+            error_log("Erro crítico: Conexão retornou NULL durante a requisicao.");
         } else {
             // Extrai o ID da Unidade
             $partes = explode(' ', $acaoCompleta);
             $id_unidade = 0;
             if (count($partes) === 2 && is_numeric($partes[1])) {
-                $id_unidade = (int)$partes[1];
+                $id_unidade = (int) $partes[1];
             }
-            
+
             // Prepara a inserção na tabela correta ($tabela)
             $consultaSQL = "INSERT INTO {$tabela} (id_unidade, comando, executado, criado_em) 
                             VALUES (:id_unidade, :comando, 0, NOW())";
-            
+
             $stmt = $pdo->prepare($consultaSQL);
-            
+
             if ($stmt === false) {
                 throw new Exception("Erro ao preparar a consulta: " . implode(" ", $pdo->errorInfo()));
             }
@@ -86,18 +86,35 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
             // Liga os parâmetros (PDO com nomeação)
             $parametros = [
                 ':id_unidade' => $id_unidade,
-                ':comando'    => $acaoCompleta
+                ':comando' => $acaoCompleta
             ];
-            
+
             if (!$stmt->execute($parametros)) {
-                 throw new Exception("Erro ao executar o comando: " . implode(" ", $stmt->errorInfo()));
+                throw new Exception("Erro ao executar o comando: " . implode(" ", $stmt->errorInfo()));
+            } else {
+                // SUCESSO NO DB! AGORA TENTA PUBLICAR NO MQTT
+                // Recupera o ID gerado para enviar junto
+                $lastId = $pdo->lastInsertId();
+
+                // Monta o JSON para o MQTT
+                $mqttPayload = json_encode([
+                    "id" => $lastId,
+                    "comando" => $acaoCompleta
+                ]);
+
+                // Inclui nosso helper e publica
+                include_once 'mqtt_helper.php';
+
+                // Publica no tópico da filial correspondente
+                // $filialNormalizada já foi tratada lá em cima
+                publicarComandoMqtt($filialNormalizada, $mqttPayload);
             }
         }
 
     } catch (Exception $e) {
         // ERRO. Faz o log do erro no servidor.
         error_log("Erro na inserção de comando em {$tabela}: " . $e->getMessage());
-        
+
     } finally {
         // REDIRECIONA para a página específica (PRINCIPAL ou QUARTOS)
         header("Location: " . $pagina_destino);
