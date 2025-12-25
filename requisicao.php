@@ -4,6 +4,9 @@
 // Objetivo: Inserir comando na tabela CORRETA do DB DEDICADO.
 // ==========================================================
 
+// Inicia output buffering para evitar problemas com headers
+ob_start();
+
 // Define a página de destino padrão
 $pagina_destino = "quartos.php";
 
@@ -24,6 +27,7 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
     if (!$acaoCompleta || empty($filial)) {
         // Redireciona para o destino padrão se faltar dados ou filial
         error_log("Tentativa de requisicao.php falhou: Acao ({$acaoCompleta}) ou Filial ({$filial}) ausente.");
+        ob_end_clean();
         header("Location: " . $pagina_destino);
         exit();
     }
@@ -48,6 +52,7 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
             break;
         default:
             error_log("Filial inválida recebida: " . $filial);
+            ob_end_clean();
             header("Location: " . $pagina_destino);
             exit();
     }
@@ -116,6 +121,8 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
         error_log("Erro na inserção de comando em {$tabela}: " . $e->getMessage());
 
     } finally {
+        // Limpa o buffer antes de redirecionar
+        ob_end_clean();
         // REDIRECIONA para a página específica (PRINCIPAL ou QUARTOS)
         header("Location: " . $pagina_destino);
         exit();
@@ -123,6 +130,7 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
 
 } else {
     // Se o método não for GET, redireciona para a página padrão (quartos.php)
+    ob_end_clean();
     header("Location: " . $pagina_destino);
     exit();
 }

@@ -32,7 +32,8 @@ function conectarAoBancoComandosPDO()
     ];
 
     try {
-        $pdo = new PDO($dsn, $user_comandos, $pass_comandos, $options);
+        // Suprime warnings do MySQL que podem causar output
+        $pdo = @new PDO($dsn, $user_comandos, $pass_comandos, $options);
         return $pdo;
     } catch (\PDOException $e) {
         // Ação de debug: Registra o erro, mas NÃO imprime no output!
