@@ -77,10 +77,36 @@ $conexao = conectarAoBanco();
 $backgroundImage = loadBackgroundImage($conexao);
 $numeroQuarto = 0;
 $tpQuarto = 0;
+$comandoEnviado = false;
+
 if (isset($_GET['dados']) && isset($_GET['tipoQuarto'])) {
     $numeroQuarto = ($_GET['dados']);
     $tpQuarto = ($_GET['tipoQuarto']);
-    enviaDados($numeroQuarto, $conexao);
+
+    // Envia o comando usando a mesma lógica de quartos.php
+    // Monta o comando no formato esperado por requisicao.php: "acao numero"
+    $acao = 'locar ' . $numeroQuarto;
+    $filial = 'toledo'; // Filial hardcoded para Toledo
+
+    // Monta a URL para requisicao.php
+    $urlRequisicao = 'http://motelinteligente.com/requisicao.php?dados=' . urlencode($acao) . '&filial=' . urlencode($filial);
+
+    // Faz a requisição usando file_get_contents
+    try {
+        $contexto = stream_context_create([
+            'http' => [
+                'timeout' => 5,
+                'ignore_errors' => true
+            ]
+        ]);
+
+        $resultado = @file_get_contents($urlRequisicao, false, $contexto);
+        $comandoEnviado = true;
+        error_log("Autoatendimento: Comando enviado via requisicao.php - Ação: {$acao}, Filial: {$filial}");
+    } catch (Exception $e) {
+        error_log("Autoatendimento: Erro ao enviar comando - " . $e->getMessage());
+        $comandoEnviado = false;
+    }
 
 } else {
     echo "deu else";
