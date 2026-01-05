@@ -278,33 +278,43 @@ function calcularMedias($conexao, $idCaixas)
             "somaValorConsumo" => 0,
             "somaValorQuarto" => 0,
             "numRegistros" => 0,
-            "somaCartaoCredito" => 0,   // NOVO DETALHE
-            "somaCartaoDebito" => 0,    // NOVO DETALHE
+            "somaCartaoCredito" => 0,
+            "somaCartaoDebito" => 0,
             "faturamentoTotal" => 0
         ];
     }
 
-    // Converte os IDs para uma string
+    // Converte os IDs para uma string para a cláusula IN
     $ids = implode(",", $idCaixas);
 
-    // Consulta SQL com o JOIN e filtro por horafecha não nulo
+    // Consulta SQL Corrigida:
+    // 1. Mantemos o JOIN com a tabela caixa e o filtro 'horafecha IS NOT NULL' conforme seu critério.
+    // 2. Removemos o LEFT JOIN direto com valorcartao para evitar a duplicação de somas (SUM).
+    // 3. Utilizamos subconsultas para obter os detalhes de crédito/débito sem inflar os valores de hospedagem.
     $consulta = "
         SELECT
             SUM(r.valorconsumo) AS somaValorConsumo,
             SUM(r.valorquarto) AS somaValorQuarto,
             SUM(r.valorconsumo + r.valorquarto) AS somaLocacoes,
             SUM(r.pagodinheiro) AS somaDinheiro,
-            SUM(r.pagocartao) AS somaCartao,  -- MANTÉM O CAMPO ORIGINAL DO CARTÃO
+            SUM(r.pagocartao) AS somaCartao,
             SUM(r.pagopix) AS somaPix,
-            COUNT(*) AS numRegistros,
+            -- COUNT(DISTINCT) garante a contagem correta de hospedagens únicas
+            COUNT(DISTINCT r.idlocacao) AS numRegistros,
             
-            -- DETALHES DO CARTÃO (LEFT JOIN COM VALORCARTAO)
-            COALESCE(SUM(vc.valorcredito), 0) AS somaCartaoCredito,
-            COALESCE(SUM(vc.valordebito), 0) AS somaCartaoDebito
+            -- Buscamos os detalhes do cartão de forma independente
+            (SELECT COALESCE(SUM(vc.valorcredito), 0) 
+             FROM valorcartao vc 
+             JOIN registralocado r2 ON vc.idlocacao = r2.idlocacao 
+             WHERE r2.idcaixaatual IN ($ids)) AS somaCartaoCredito,
+             
+            (SELECT COALESCE(SUM(vc.valordebito), 0) 
+             FROM valorcartao vc 
+             JOIN registralocado r2 ON vc.idlocacao = r2.idlocacao 
+             WHERE r2.idcaixaatual IN ($ids)) AS somaCartaoDebito
             
         FROM registralocado r
         JOIN caixa c ON r.idcaixaatual = c.id
-        LEFT JOIN valorcartao vc ON r.idlocacao = vc.idlocacao
         WHERE r.idcaixaatual IN ($ids)
           AND c.horafecha IS NOT NULL
     ";
@@ -312,12 +322,10 @@ function calcularMedias($conexao, $idCaixas)
     // Executa a consulta
     $resultado = mysqli_query($conexao, $consulta);
 
-    // Verifica se houve resultado
     if ($resultado) {
-        // Obtém os totais diretamente da consulta
         $row = mysqli_fetch_assoc($resultado);
 
-        // Calcula as médias, se houver registros
+        // Calcula as médias baseadas em registros únicos
         if ($row['numRegistros'] > 0) {
             $mediaValorConsumo = $row['somaValorConsumo'] / $row['numRegistros'];
             $mediaValorQuarto = $row['somaValorQuarto'] / $row['numRegistros'];
@@ -328,10 +336,9 @@ function calcularMedias($conexao, $idCaixas)
             $ticketMedioLocacoes = 0;
         }
 
-        // Faturamento total
+        // Faturamento total (Hospedagem + Consumo)
         $faturamentoTotal = ($row['somaValorConsumo'] ?? 0) + ($row['somaValorQuarto'] ?? 0);
 
-        // Retorna os resultados
         return [
             "mediaValorConsumo" => $mediaValorConsumo,
             "mediaValorQuarto" => $mediaValorQuarto,
@@ -347,20 +354,13 @@ function calcularMedias($conexao, $idCaixas)
             "faturamentoTotal" => $faturamentoTotal
         ];
     } else {
-        // Se a consulta falhar, retorna valores padrão
+        // Retorno padrão em caso de erro na query
         return [
-            "mediaValorConsumo" => 0,
-            "mediaValorQuarto" => 0,
-            "ticketMedioLocacoes" => 0,
-            "somaDinheiro" => 0,
-            "somaCartao" => 0,
-            "somaPix" => 0,
-            "somaCartaoCredito" => 0,
-            "somaCartaoDebito" => 0,
-            "somaValorConsumo" => 0,
-            "somaValorQuarto" => 0,
-            "numRegistros" => 0,
-            "faturamentoTotal" => 0
+            "mediaValorConsumo" => 0, "mediaValorQuarto" => 0, "ticketMedioLocacoes" => 0,
+            "somaDinheiro" => 0, "somaCartao" => 0, "somaPix" => 0,
+            "somaCartaoCredito" => 0, "somaCartaoDebito" => 0,
+            "somaValorConsumo" => 0, "somaValorQuarto" => 0,
+            "numRegistros" => 0, "faturamentoTotal" => 0
         ];
     }
 }
