@@ -1,7 +1,7 @@
 <?php
 // Define o valor base da mensalidade e a data de vencimento
 
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
 ini_set('display_startup_errors', 1);
 const VENCIMENTO_DIA = 10;
 const MULTA_PERCENTUAL = 0.05; // 5%
@@ -142,7 +142,7 @@ try {
 
         // 4. Armazena o detalhe
         $cobranca_detalhada[] = [
-            'referente' => strftime('%B/%Y', $mes_iterator->getTimestamp()),
+            'referente' => $mes_iterator->format('m/Y'),
             'valor_base' => $valor_mensalidade,
             'multa' => $multa_mensal,
             'juros' => $juros_mensal,
