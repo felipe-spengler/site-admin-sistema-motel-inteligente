@@ -98,7 +98,7 @@ if ($conexao === null) {
     $imagemCodificada = null;
     $caixas = dadosCaixa($conexao, $dataInicio, $dataFim);
     $idsCaixa = getIdCaixas($conexao, $dataInicio, $dataFim);
-    
+
     // Calcula a diferença de dias no período
     $data1 = new DateTime($dataInicio);
     $data2 = new DateTime(substr($dataFim, 0, 10)); // Pega apenas a data
@@ -106,22 +106,22 @@ if ($conexao === null) {
     $dias = $intervalo->days + 1;
 
     $produtosVendidos = carregaProdutosVendidos($conexao, $idsCaixa);
-    
+
     // --- CORREÇÃO: CALCULAR TOTAIS DE PRODUTOS VENDIDOS ---
     foreach ($produtosVendidos as $produto) {
         $numVendido += $produto['quantidade']; // Soma a quantidade
         $valorVendido += ($produto['quantidade'] * $produto['valorUnd']); // Soma o valor total do produto
     }
     // --------------------------------------------------------
-    
+
     $locacoes = carregarLocacoes($conexao, $idsCaixa);
     $locacoesJson = json_encode($locacoes);
-    
+
     // Calcula o total de locações para o card
     foreach ($locacoes as $loc) {
         $totalLocacoes += $loc['total_locacoes'];
     }
-    
+
     list($locacoesPorQuarto, $locacoesPorTipoQuarto) = obterLocacoesPorQuartoETipo($idsCaixa, $conexao);
 }
 
@@ -135,25 +135,27 @@ if (isset($conexao) && $conexao !== null) {
 
 // -------------------- FUNÇÕES AUXILIARES DE PROCESSAMENTO DE DADOS --------------------
 
-function formatarData($data, $horaInicial = true) {
+function formatarData($data, $horaInicial = true)
+{
     // Divide a data em dia, mês e ano
     $partes = explode('/', $data);
     $dia = $partes[0];
     $mes = $partes[1];
     $ano = $partes[2];
-    
+
     // Verifica se devemos adicionar a hora 00:00:00 ou 23:59:59
     $hora = $horaInicial ? '00:00:00' : '23:59:59';
-    
+
     // Formata a data e hora de acordo com o formato MySQL
     return sprintf('%04d-%02d-%02d %s', $ano, $mes, $dia, $hora);
 }
 
-function getIdCaixas($conexao, $dataInicio, $dataFim) {
+function getIdCaixas($conexao, $dataInicio, $dataFim)
+{
     $sql = "SELECT id FROM caixa WHERE horaabre >= ? AND horaabre <= ?";
     $idCaixas = array();
     $statement = null;
-    
+
     try {
         $statement = $conexao->prepare($sql);
         $statement->bind_param("ss", $dataInicio, $dataFim);
@@ -173,7 +175,8 @@ function getIdCaixas($conexao, $dataInicio, $dataFim) {
     return $idCaixas;
 }
 
-function dadosCaixa($conexao, $dataInicio, $dataFim) {
+function dadosCaixa($conexao, $dataInicio, $dataFim)
+{
     $sql = "SELECT DAY(horaabre) as dia, MONTH(horaabre) as mes, saldofecha FROM caixa WHERE horaabre >= ? AND horaabre <= ?";
     $data = array();
     $statement = null;
@@ -199,12 +202,13 @@ function dadosCaixa($conexao, $dataInicio, $dataFim) {
 }
 
 // --- FUNÇÃO REFATORADA PARA REUTILIZAR A CONEXÃO ---
-function carregaProdutosVendidos($conexao, $idsCaixa) {
+function carregaProdutosVendidos($conexao, $idsCaixa)
+{
     $listaProdutos = array();
     if (empty($idsCaixa)) {
         return $listaProdutos;
     }
-    
+
     $placeholders = implode(',', array_fill(0, count($idsCaixa), '?'));
     $consultaSQL = "SELECT idproduto, SUM(quantidade) AS quantidade_total, valorunidade FROM registravendido WHERE idcaixaatual IN ($placeholders) GROUP BY idproduto, valorunidade";
 
@@ -223,7 +227,7 @@ function carregaProdutosVendidos($conexao, $idsCaixa) {
             $produto = array(
                 'idProduto' => $row['idproduto'],
                 // Passando a CONEXÃO aberta para a função getDescricao
-                'descricao' => getDescricao($row['idproduto'], $conexao), 
+                'descricao' => getDescricao($row['idproduto'], $conexao),
                 'quantidade' => $row['quantidade_total'],
                 'valorUnd' => $row['valorunidade'],
             );
@@ -238,7 +242,7 @@ function carregaProdutosVendidos($conexao, $idsCaixa) {
     }
 
     // Ordena a lista de produtos pela quantidade total vendida em ordem decrescente
-    usort($listaProdutos, function($a, $b) {
+    usort($listaProdutos, function ($a, $b) {
         return $b['quantidade'] - $a['quantidade'];
     });
 
@@ -246,9 +250,10 @@ function carregaProdutosVendidos($conexao, $idsCaixa) {
 }
 
 // --- FUNÇÃO REFATORADA PARA REUTILIZAR A CONEXÃO ---
-function getDescricao($idPassado, $conexao) {
+function getDescricao($idPassado, $conexao)
+{
     $consultaSQL = "SELECT descricao FROM produtos WHERE idproduto = ?";
-    $resultado = null; 
+    $resultado = null;
     $statement = null;
 
     try {
@@ -256,15 +261,15 @@ function getDescricao($idPassado, $conexao) {
         if (!$statement) {
             throw new Exception("Erro ao preparar a consulta SQL: " . $conexao->error);
         }
-        
+
         $statement->bind_param("i", $idPassado);
-        
+
         if (!$statement->execute()) {
             throw new Exception("Erro ao executar a consulta SQL: " . $statement->error);
         }
-        
+
         $resultado = $statement->get_result();
-        
+
         if ($resultado && $resultado->num_rows > 0) {
             $row = $resultado->fetch_assoc();
             return $row['descricao'];
@@ -284,11 +289,12 @@ function getDescricao($idPassado, $conexao) {
     }
 }
 
-function carregarLocacoes($conexao, $idsCaixa) {
+function carregarLocacoes($conexao, $idsCaixa)
+{
     if (empty($idsCaixa)) {
         return [];
     }
-    
+
     $placeholders = implode(',', array_fill(0, count($idsCaixa), '?'));
 
     $consultaSQL = "SELECT 
@@ -326,7 +332,7 @@ function carregarLocacoes($conexao, $idsCaixa) {
 
         while ($row = $resultado->fetch_assoc()) {
             $locacoesPorCaixa[] = [
-                'data' => $row['dia'] .'/' . $row['mes'] ,
+                'data' => $row['dia'] . '/' . $row['mes'],
                 'total_locacoes' => $row['total_locacoes']
             ];
         }
@@ -337,33 +343,34 @@ function carregarLocacoes($conexao, $idsCaixa) {
             $statement->close();
         }
     }
-    
+
     return $locacoesPorCaixa;
 }
 
 // --- FUNÇÃO REFATORADA PARA REUTILIZAR A CONEXÃO ---
-function obterLocacoesPorQuartoETipo($idsCaixa, $conn) {
+function obterLocacoesPorQuartoETipo($idsCaixa, $conn)
+{
     $locacoesPorQuarto = [];
     $locacoesPorTipoQuarto = [];
     if (empty($idsCaixa)) {
         return [$locacoesPorQuarto, $locacoesPorTipoQuarto];
     }
-    
+
     // 1. Obter todas as locações e números de quarto em uma única consulta
     $placeholders = implode(',', array_fill(0, count($idsCaixa), '?'));
     $sqlLocacoes = "SELECT numquarto FROM registralocado WHERE idcaixaatual IN ($placeholders)";
     $locacoesGerais = [];
     $statementLocacoes = null;
-    
+
     try {
         $statementLocacoes = $conn->prepare($sqlLocacoes);
         $tipos = str_repeat("i", count($idsCaixa));
         $statementLocacoes->bind_param($tipos, ...$idsCaixa);
         $statementLocacoes->execute();
         $resultadoLocacoes = $statementLocacoes->get_result();
-        
+
         while ($row = $resultadoLocacoes->fetch_assoc()) {
-             $locacoesGerais[] = $row;
+            $locacoesGerais[] = $row;
         }
     } catch (Exception $e) {
         // Tratar erro
@@ -391,7 +398,7 @@ function obterLocacoesPorQuartoETipo($idsCaixa, $conn) {
 
     // 3. Obter o tipo de quarto em uma ÚNICA consulta para todos os quartos encontrados
     $locacoesPorQuartoArray = array_values($locacoesPorQuarto);
-    
+
     if (!empty($quartosEncontrados)) {
         $quartosPlaceholders = implode(',', array_fill(0, count($quartosEncontrados), '?'));
         $sqlTipos = "SELECT numeroquarto, tipoquarto FROM quartos WHERE numeroquarto IN ($quartosPlaceholders)";
@@ -403,12 +410,12 @@ function obterLocacoesPorQuartoETipo($idsCaixa, $conn) {
             $statementTipos->bind_param($tiposQ, ...$quartosEncontrados);
             $statementTipos->execute();
             $resultadoTipos = $statementTipos->get_result();
-            
+
             $tiposQuartosMap = [];
             while ($row = $resultadoTipos->fetch_assoc()) {
                 $tiposQuartosMap[$row['numeroquarto']] = $row['tipoquarto'];
             }
-            
+
             // 4. Calcular locações por tipo de quarto (em PHP)
             foreach ($locacoesPorQuartoArray as $quarto) {
                 $numeroQuarto = $quarto['numeroquarto'];
@@ -432,7 +439,7 @@ function obterLocacoesPorQuartoETipo($idsCaixa, $conn) {
     }
 
     // Ordenar locacoesPorQuarto pelo número do quarto (final)
-    usort($locacoesPorQuartoArray, function($a, $b) {
+    usort($locacoesPorQuartoArray, function ($a, $b) {
         return $a['numeroquarto'] - $b['numeroquarto'];
     });
 
@@ -442,9 +449,10 @@ function obterLocacoesPorQuartoETipo($idsCaixa, $conn) {
 // As funções imprimirTabelaLocacoesPorQuarto e imprimirTabelaLocacoesPorTipoQuarto
 // foram mantidas aqui, mas não são usadas no fluxo principal que gera o HTML.
 
-function imprimirTabelaLocacoesPorQuarto($locacoesPorQuarto) {
+function imprimirTabelaLocacoesPorQuarto($locacoesPorQuarto)
+{
     // Função de comparação para ordenar por total_locacoes de forma decrescente
-    usort($locacoesPorQuarto, function($a, $b) {
+    usort($locacoesPorQuarto, function ($a, $b) {
         return $b['total_locacoes'] - $a['total_locacoes'];
     });
 
@@ -464,7 +472,8 @@ function imprimirTabelaLocacoesPorQuarto($locacoesPorQuarto) {
 }
 
 
-function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto) {
+function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto)
+{
     echo "<h3>Locações por Tipo de Quarto</h3>";
     echo "<table border='1'>";
     echo "<tr><th>Tipo de Quarto</th><th>Total de Locações</th></tr>";
@@ -481,18 +490,21 @@ function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto) {
 
 <!DOCTYPE html>
 <html lang="pt-BR">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Demonstrativo Gráfico</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
 
     <style>
         body {
-            background-color: #f8f9fa; /* Cor de fundo Bootstrap light gray */
+            background-color: #f8f9fa;
+            /* Cor de fundo Bootstrap light gray */
             font-family: Arial, sans-serif;
         }
-        
+
         /* Classes para esconder/mostrar abas (mantidas para compatibilidade com seu JS) */
         .conteudo-aba {
             display: none;
@@ -501,11 +513,12 @@ function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto) {
         .conteudo-aba.ativo {
             display: block;
         }
-        
+
         /* Estilo da aba ativa usa as classes 'active' e 'nav-link' do Bootstrap no JS */
-        
+
         .card-title {
-            font-size: 0.9rem; /* Título dos cards de total menor e mais discreto */
+            font-size: 0.9rem;
+            /* Título dos cards de total menor e mais discreto */
             font-weight: 600;
         }
     </style>
@@ -516,12 +529,14 @@ function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto) {
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
 </head>
+
 <body>
     <div class="container my-4 p-4 bg-white border rounded shadow-lg">
         <h3 class="text-center mb-4 text-primary">Demonstrativo Gráfico</h3>
-        
+
         <div class="options">
-            <form method="post" action="demonstrativo_grafico.php" class="row g-3 align-items-center justify-content-center">
+            <form method="post" action="demonstrativo_grafico.php"
+                class="row g-3 align-items-center justify-content-center">
                 <div class="col-auto">
                     <label for="period" class="col-form-label fw-bold">Selecione o período:</label>
                 </div>
@@ -535,25 +550,29 @@ function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto) {
                         <option value="custom" <?php echo (isset($_POST['period']) && $_POST['period'] == 'custom') ? 'selected' : ''; ?>>Definir um Período</option>
                     </select>
                 </div>
-                
-                <div id="custom_period" class="col-12 row g-3 justify-content-center mt-2" style="display: <?php echo (isset($_POST['period']) && $_POST['period'] == 'custom') ? 'flex' : 'none'; ?>;">
+
+                <div id="custom_period" class="col-12 row g-3 justify-content-center mt-2"
+                    style="display: <?php echo (isset($_POST['period']) && $_POST['period'] == 'custom') ? 'flex' : 'none'; ?>;">
                     <div class="col-md-3">
                         <label for="data_inicio" class="form-label">Data de Início:</label>
-                        <input type="text" id="data_inicio" name="data_inicio" class="form-control" value="<?php echo isset($_POST['data_inicio']) ? htmlspecialchars($_POST['data_inicio']) : ''; ?>">
+                        <input type="text" id="data_inicio" name="data_inicio" class="form-control"
+                            value="<?php echo isset($_POST['data_inicio']) ? htmlspecialchars($_POST['data_inicio']) : ''; ?>">
                     </div>
                     <div class="col-md-3">
                         <label for="data_fim" class="form-label">Data de Fim:</label>
-                        <input type="text" id="data_fim" name="data_fim" class="form-control" value="<?php echo isset($_POST['data_fim']) ? htmlspecialchars($_POST['data_fim']) : ''; ?>">
+                        <input type="text" id="data_fim" name="data_fim" class="form-control"
+                            value="<?php echo isset($_POST['data_fim']) ? htmlspecialchars($_POST['data_fim']) : ''; ?>">
                     </div>
                 </div>
-                
+
                 <div class="col-auto mt-3">
                     <button type="submit" class="btn btn-primary">Enviar</button>
                 </div>
             </form>
         </div>
-        
-        <hr class="my-4"> <div class="conteudo">
+
+        <hr class="my-4">
+        <div class="conteudo">
             <div class="abas d-flex justify-content-center nav nav-pills mb-3">
                 <button class="nav-link" id="aba-caixas">Caixas</button>
                 <button class="nav-link" id="aba-produtos">Produtos Vendidos</button>
@@ -561,11 +580,11 @@ function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto) {
             </div>
 
             <div class="conteudo-abas card card-body p-3 border-0">
-                
+
                 <div id="conteudo-caixas" class="conteudo-aba ativo">
                     <canvas id="grafico-caixas" style="height: 300px;"></canvas>
                     <h5 class="mt-4 mb-3 text-center text-secondary">Dados de Fechamento de Caixa</h5>
-                    
+
                     <div class="table-responsive mt-3">
                         <table id="tabela-caixas" class="table table-striped table-hover table-sm text-center">
                             <thead class="table-primary">
@@ -578,7 +597,7 @@ function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto) {
                                 <?php foreach ($caixas as $caixa): ?>
                                     <tr>
                                         <td><?php echo $caixa[0]; ?></td>
-                                        <td><?php echo 'R$ ' . number_format($caixa[1], 2, ',', '.'); ?></td>
+                                        <td><?php echo 'R$ ' . number_format((float) $caixa[1], 2, ',', '.'); ?></td>
                                     </tr>
                                 <?php endforeach; ?>
                             </tbody>
@@ -590,7 +609,7 @@ function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto) {
                     <div class="mb-4" style="height: 400px;">
                         <canvas id="grafico-produtos"></canvas>
                     </div>
-                    
+
                     <div class="row text-center mt-4 mb-4">
                         <div class="col-md-6 mb-3">
                             <div class="card border-primary h-100 shadow-sm">
@@ -604,7 +623,8 @@ function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto) {
                             <div class="card border-success h-100 shadow-sm">
                                 <div class="card-body">
                                     <h5 class="card-title text-success">Valor Total de Vendas</h5>
-                                    <p class="card-text fs-3 fw-bold"><?php echo "R$ " . number_format($valorVendido, 2, ',', '.'); ?></p>
+                                    <p class="card-text fs-3 fw-bold">
+                                        <?php echo "R$ " . number_format($valorVendido, 2, ',', '.'); ?></p>
                                 </div>
                             </div>
                         </div>
@@ -627,8 +647,8 @@ function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto) {
                                     echo "<tr>";
                                     echo "<td>{$produto['descricao']}</td>";
                                     echo "<td>{$produto['quantidade']}</td>";
-                                    echo "<td>" . "R$ " . number_format($produto['valorUnd'], 2, ',', '.') . "</td>";
-                                    echo "<td>R$ " . number_format($produto['valorUnd'] * $produto['quantidade'], 2, ',', '.') . "</td>";
+                                    echo "<td>" . "R$ " . number_format((float) $produto['valorUnd'], 2, ',', '.') . "</td>";
+                                    echo "<td>R$ " . number_format((float) $produto['valorUnd'] * (float) $produto['quantidade'], 2, ',', '.') . "</td>";
                                     echo "</tr>";
                                 }
                                 ?>
@@ -660,7 +680,7 @@ function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto) {
                             </div>
                         </div>
                     </div>
-                    
+
                     <h5 class="mb-3 text-center text-secondary">Locações por Data</h5>
                     <div class="table-responsive">
                         <table class="table table-striped table-hover table-sm text-center">
@@ -701,11 +721,14 @@ function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto) {
                             <div class="table-responsive">
                                 <table class="table table-bordered table-sm text-center table-hover shadow-sm">
                                     <thead class="table-warning">
-                                        <tr><th scope="col">Número do Quarto</th><th scope="col">Total de Locações</th></tr>
+                                        <tr>
+                                            <th scope="col">Número do Quarto</th>
+                                            <th scope="col">Total de Locações</th>
+                                        </tr>
                                     </thead>
                                     <tbody>
                                         <?php
-                                        usort($locacoesPorQuarto, function($a, $b) {
+                                        usort($locacoesPorQuarto, function ($a, $b) {
                                             return $b['total_locacoes'] - $a['total_locacoes'];
                                         });
                                         foreach ($locacoesPorQuarto as $quarto) {
@@ -724,7 +747,10 @@ function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto) {
                             <div class="table-responsive">
                                 <table class="table table-bordered table-sm text-center table-hover shadow-sm">
                                     <thead class="table-danger">
-                                        <tr><th scope="col">Tipo de Quarto</th><th scope="col">Total de Locações</th></tr>
+                                        <tr>
+                                            <th scope="col">Tipo de Quarto</th>
+                                            <th scope="col">Total de Locações</th>
+                                        </tr>
                                     </thead>
                                     <tbody>
                                         <?php
@@ -741,17 +767,18 @@ function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto) {
             </div>
         </div>
 
-    </div> <script>
-        $(function() {
+    </div>
+    <script>
+        $(function () {
             // Lógica para mostrar/esconder o período customizado
-            $("#period").change(function() {
+            $("#period").change(function () {
                 if ($(this).val() == 'custom') {
                     $("#custom_period").show();
                 } else {
                     $("#custom_period").hide();
                 }
             });
-            
+
             // Inicializa o estado se a opção "custom" estiver selecionada no carregamento da página
             if ($("#period").val() == 'custom') {
                 $("#custom_period").show();
@@ -763,9 +790,9 @@ function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto) {
             });
 
             // Lógica das Abas: Adiciona a classe 'active' do Bootstrap e sua classe 'ativo'
-            $(".abas button").click(function() {
+            $(".abas button").click(function () {
                 // Remove a classe 'active' do Bootstrap e 'aba-ativa' customizada de todos
-                $(".abas button").removeClass("active"); 
+                $(".abas button").removeClass("active");
                 $(".conteudo-aba").removeClass("ativo");
 
                 // Adiciona as classes ativas do Bootstrap e sua classe 'ativo'
@@ -777,148 +804,152 @@ function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto) {
             $("#aba-caixas").addClass("active");
         });
     </script>
-    
+
     <script>
         var caixas = <?php echo json_encode($caixas); ?>;
         var locacoes = <?php echo json_encode($locacoes); ?>;
-        
-        $(document).ready(function() {
+
+        $(document).ready(function () {
             // Chamar as funções de gráfico
             gerarGraficoLocacoes(locacoes);
             gerarGraficoProdutos(<?php echo json_encode($produtosVendidos); ?>);
             gerarGraficoCaixa();
-            
+
             // Funções para gerar os gráficos
             function gerarGraficoProdutos(produtosVendidos) {
                 var labels = [];
                 var dataQuantidade = [];
                 var cores = [
-                        'rgba(255, 99, 132, 0.8)', 'rgba(54, 162, 235, 0.8)', 'rgba(255, 206, 86, 0.8)',
-                        'rgba(75, 192, 192, 0.8)', 'rgba(153, 102, 255, 0.8)', 'rgba(255, 159, 64, 0.8)',
-                        'rgba(255, 69, 0, 0.8)', 'rgba(255, 140, 0, 0.8)', 'rgba(255, 0, 255, 0.8)',
-                        'rgba(0, 0, 255, 0.8)', 'rgba(0, 255, 0, 0.8)', 'rgba(255, 192, 203, 0.8)',
-                        'rgba(255, 182, 193, 0.8)', 'rgba(255, 105, 180, 0.8)', 'rgba(160, 32, 240, 0.8)',
-                        'rgba(0, 139, 139, 0.8)', 'rgba(0, 128, 0, 0.8)', 'rgba(0, 255, 255, 0.8)',
-                        'rgba(255, 255, 0, 0.8)', 'rgba(255, 255, 224, 0.8)', 'rgba(240, 230, 140, 0.8)',
-                        'rgba(255, 215, 0, 0.8)', 'rgba(189, 183, 107, 0.8)', 'rgba(128, 0, 0, 0.8)',
-                        'rgba(139, 69, 19, 0.8)'
-                    ];
+                    'rgba(255, 99, 132, 0.8)', 'rgba(54, 162, 235, 0.8)', 'rgba(255, 206, 86, 0.8)',
+                    'rgba(75, 192, 192, 0.8)', 'rgba(153, 102, 255, 0.8)', 'rgba(255, 159, 64, 0.8)',
+                    'rgba(255, 69, 0, 0.8)', 'rgba(255, 140, 0, 0.8)', 'rgba(255, 0, 255, 0.8)',
+                    'rgba(0, 0, 255, 0.8)', 'rgba(0, 255, 0, 0.8)', 'rgba(255, 192, 203, 0.8)',
+                    'rgba(255, 182, 193, 0.8)', 'rgba(255, 105, 180, 0.8)', 'rgba(160, 32, 240, 0.8)',
+                    'rgba(0, 139, 139, 0.8)', 'rgba(0, 128, 0, 0.8)', 'rgba(0, 255, 255, 0.8)',
+                    'rgba(255, 255, 0, 0.8)', 'rgba(255, 255, 224, 0.8)', 'rgba(240, 230, 140, 0.8)',
+                    'rgba(255, 215, 0, 0.8)', 'rgba(189, 183, 107, 0.8)', 'rgba(128, 0, 0, 0.8)',
+                    'rgba(139, 69, 19, 0.8)'
+                ];
 
-                    produtosVendidos.forEach(function(produto) {
-                        labels.push(produto.descricao);
-                        dataQuantidade.push(produto.quantidade);
-                    });
-                
-                    var ctx = document.getElementById('grafico-produtos').getContext('2d');
-                    var graficoProdutos = new Chart(ctx, {
-                        type: 'pie',
-                        data: {
-                            labels: labels,
-                            datasets: [{
-                                data: dataQuantidade,
-                                backgroundColor: cores
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: {
+                produtosVendidos.forEach(function (produto) {
+                    labels.push(produto.descricao);
+                    dataQuantidade.push(produto.quantidade);
+                });
+
+                var ctx = document.getElementById('grafico-produtos').getContext('2d');
+                var graficoProdutos = new Chart(ctx, {
+                    type: 'pie',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            data: dataQuantidade,
+                            backgroundColor: cores
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Quantidade Vendida por Produto'
+                            }
+                        }
+                    }
+                });
+            }
+
+            function gerarGraficoLocacoes(locacoes) {
+                locacoes.sort((a, b) => new Date(a.data_abertura) - new Date(b.data_abertura));
+
+                var labels = locacoes.map(locacao => locacao.data);
+                var dataLocacoes = locacoes.map(locacao => locacao.total_locacoes);
+
+                var ctx = document.getElementById('grafico-locacoes').getContext('2d');
+                var graficoLocacoes = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Total de Locações',
+                            data: dataLocacoes,
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            borderWidth: 2,
+                            fill: false
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
                                 title: {
                                     display: true,
-                                    text: 'Quantidade Vendida por Produto'
+                                    text: 'Data'
                                 }
-                            }
-                        }
-                    });
-                }
-
-                function gerarGraficoLocacoes(locacoes) {
-                    locacoes.sort((a, b) => new Date(a.data_abertura) - new Date(b.data_abertura));
-
-                    var labels = locacoes.map(locacao => locacao.data);
-                    var dataLocacoes = locacoes.map(locacao => locacao.total_locacoes);
-
-                    var ctx = document.getElementById('grafico-locacoes').getContext('2d');
-                    var graficoLocacoes = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: labels,
-                            datasets: [{
-                                label: 'Total de Locações',
-                                data: dataLocacoes,
-                                borderColor: 'rgba(75, 192, 192, 1)',
-                                borderWidth: 2,
-                                fill: false
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            scales: {
-                                x: {
-                                    title: {
-                                        display: true,
-                                        text: 'Data'
-                                    }
+                            },
+                            y: {
+                                title: {
+                                    display: true,
+                                    text: 'Total de Locações'
                                 },
-                                y: {
-                                    title: {
-                                        display: true,
-                                        text: 'Total de Locações'
-                                    },
-                                    beginAtZero: true
-                                }
+                                beginAtZero: true
                             }
                         }
-                    });
-                }
+                    }
+                });
+            }
 
-                function gerarGraficoCaixa() {
-                    var labels = caixas.map(function(item) {
-                        return item[0];
-                    });
+            function gerarGraficoCaixa() {
+                var labels = caixas.map(function (item) {
+                    return item[0];
+                });
 
-                    var dataValores = caixas.map(function(item) {
-                        return item[1];
-                    });
+                var dataValores = caixas.map(function (item) {
+                    return item[1];
+                });
 
-                    var ctx = document.getElementById('grafico-caixas').getContext('2d');
-                    var graficoCaixas = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: labels,
-                            datasets: [{
-                                label: 'Saldo de Fechamento',
-                                data: dataValores,
-                                borderColor: 'rgba(75, 192, 192, 1)',
-                                borderWidth: 2,
-                                fill: false
-                            }]
-                        },
-                        options: {
-                            scales: {
-                                x: {
-                                    title: {
-                                        display: true,
-                                        text: 'Data'
-                                    }
+                var ctx = document.getElementById('grafico-caixas').getContext('2d');
+                var graficoCaixas = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Saldo de Fechamento',
+                            data: dataValores,
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            borderWidth: 2,
+                            fill: false
+                        }]
+                    },
+                    options: {
+                        scales: {
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Data'
+                                }
+                            },
+                            y: {
+                                title: {
+                                    display: true,
+                                    text: 'Valor'
                                 },
-                                y: {
-                                    title: {
-                                        display: true,
-                                        text: 'Valor'
-                                    },
-                                    beginAtZero: true
-                                }
+                                beginAtZero: true
                             }
                         }
-                    });
-                }
-            
+                    }
+                });
+            }
+
         });
     </script>
-    
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
-    
-    <?php include 'menu.php'; ?> </body>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+        crossorigin="anonymous"></script>
+
+    <?php include 'menu.php'; ?>
+</body>
+
 </html>
