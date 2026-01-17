@@ -8,7 +8,7 @@ error_reporting(E_ALL);
 date_default_timezone_set('America/Sao_Paulo');
 
 // API Key do Asaas
-$asaas_api_key = $_SERVER['ASAAS_KEY'] ?? $_ENV['ASAAS_KEY'] ?? getenv('ASAAS_KEY');
+$asaas_api_key = trim($_SERVER['ASAAS_KEY'] ?? $_ENV['ASAAS_KEY'] ?? getenv('ASAAS_KEY'), "'\"");
 
 // 1. Pega parâmetros
 $sistema = isset($_GET['sistema']) ? strtolower($_GET['sistema']) : '';
