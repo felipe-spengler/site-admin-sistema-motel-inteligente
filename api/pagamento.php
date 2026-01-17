@@ -4,14 +4,11 @@ ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
-// Configurações e includes
-require __DIR__ . '/vendor/autoload.php'; // Caminho para o autoload do Mercado Pago (CORRIGIDO)
+// Configurações básicas
 date_default_timezone_set('America/Sao_Paulo');
 
-// Constantes do Mercado Pago (TESTE)
-define('MP_ACCESS_TOKEN', getenv('MP_ACCESS_TOKEN') ?: '');
-define('MP_PUBLIC_KEY', getenv('MP_PUBLIC_KEY') ?: '');
-const URL_BASE_WEBHOOK = 'https://motelinteligente.com/api/webhook_sistema.php';
+// API Key do Asaas
+$asaas_api_key = getenv('ASAAS_API_KEY');
 
 // 1. Pega parâmetros
 $sistema = isset($_GET['sistema']) ? strtolower($_GET['sistema']) : '';
@@ -47,11 +44,12 @@ if (!file_exists($conexao_path)) {
     die('<div style="color: red; padding: 20px;">Arquivo de conexão não encontrado.</div>');
 }
 
-// Inclui e conecta ao banco (função deve ser 'conectarAoBanco()')
+// Inclui e conecta ao banco
 include $conexao_path;
 $conn = conectarAoBanco();
 
 // Gera um ID de referência único para este pagamento
+// Formato esperado pelo Webhook: MENSALIDADE-SISTEMA-ID
 $external_reference = "MENSALIDADE-{$sistema}-" . uniqid();
 
 // Data de hoje (referente a Outubro/2025 no seu contexto)
@@ -60,66 +58,118 @@ $referente_data = date('Y-m-01');
 // Variáveis para a tela
 $qr_code_base64 = '';
 $pix_copia_cola = '';
-$payment_id_mp = 0; // Armazenará o ID da transação (transaction_id no seu BD)
+$payment_id_asaas = ''; // Agora é string (ID do Asaas, ex: "pay_...")
+
+/**
+ * Função auxiliar para chamar a API do Asaas via cURL
+ */
+function asaas_request($method, $endpoint, $data = null)
+{
+    global $asaas_api_key;
+    $url = "https://api.asaas.com/v3" . $endpoint;
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+
+    $headers = [
+        "access_token: " . $asaas_api_key,
+        "Content-Type: application/json"
+    ];
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+
+    if ($data) {
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+    }
+
+    $response = curl_exec($ch);
+    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curl_error = curl_error($ch);
+    curl_close($ch);
+
+    if ($http_code >= 400 || !$response) {
+        throw new Exception("Erro Asaas ($http_code): " . ($response ?: $curl_error));
+    }
+
+    return json_decode($response, true);
+}
 
 try {
-    // 3. Configura e Cria o Pagamento no Mercado Pago
-    \MercadoPago\SDK::setAccessToken(MP_ACCESS_TOKEN);
-
-    $payment = new \MercadoPago\Payment();
-    $payment->transaction_amount = round($valor, 2);
-    $payment->description = "Mensalidade Sistema " . ucfirst($sistema);
-    $payment->payment_method_id = "pix";
-    $payment->notification_url = URL_BASE_WEBHOOK . "?banco={$nome_banco}"; // Envia o nome do banco
-    $payment->external_reference = $external_reference;
-
-    // Dados do pagador (exemplo)
-    $payment->payer = array(
-        "email" => "pagador@teste.com",
-        "first_name" => "Cliente",
-        "last_name" => "Teste"
-    );
-
-    $payment->save(); // Gera o pagamento
-
-    if ($payment->status == 'pending') {
-        $payment_id_mp = $payment->id; // ID da transação no MP
-
-        // Dados do PIX (CORREÇÃO DE ACESSO AO OBJETO)
-        $qr_code_base64 = $payment->point_of_interaction->transaction_data->qr_code_base64;
-        $pix_copia_cola = $payment->point_of_interaction->transaction_data->qr_code;
-
-        // 4. Salva o registro no Banco de Dados (Status: pending)
-        $sql = "INSERT INTO mensalidade (
-            referente, 
-            valor, 
-            metodo, 
-            status, 
-            external_reference, 
-            transaction_id /* <-- CORRIGIDO AQUI */
-        ) VALUES (
-            ?, ?, 'pix', 'pending', ?, ?
-        )";
-
-        $stmt = $conn->prepare($sql);
-        // O $payment_id_mp é o ID da transação que será salvo em transaction_id
-        $stmt->bind_param("sdsi", $referente_data, $valor, $external_reference, $payment_id_mp);
-        $stmt->execute();
-        $stmt->close();
-
-    } else {
-        // Se o MP não retornar 'pending' imediatamente
-        throw new Exception("Erro ao gerar o PIX no Mercado Pago. Status retornado: " . $payment->status);
+    if (!$asaas_api_key) {
+        throw new Exception("Chave de API do Asaas não configurada.");
     }
+
+    // 3. Obter ou Criar Cliente no Asaas
+    // Como não temos dados do usuário, cria um cliente genérico para o Sistema
+    // Tenta criar (se já existir com esse email, o Asaas pode retornar erro 400 ou sucesso duplicado, 
+    // mas o ideal é buscar. Para simplificar e evitar falha se o email já existe, vamos usar um email único ou fixo?)
+    // Melhor abordagem simples: Criar um consumidor específico para esse pagamento ou sistema.
+    $cliente_nome = "Cliente Sistema " . ucfirst($sistema);
+    $cliente_email = "sistema.{$sistema}@motelinteligente.com"; // Email dummy fixo para o sistema
+
+    // Buscar cliente pelo email para não ficar criando mil duplicados
+    $clientes_busca = asaas_request('GET', "/customers?email=" . urlencode($cliente_email));
+    $customer_id = '';
+
+    if (!empty($clientes_busca['data'])) {
+        $customer_id = $clientes_busca['data'][0]['id'];
+    } else {
+        // Cria novo
+        $novo_cliente = asaas_request('POST', '/customers', [
+            'name' => $cliente_nome,
+            'email' => $cliente_email
+        ]);
+        $customer_id = $novo_cliente['id'];
+    }
+
+    // 4. Criar Cobrança (Payment)
+    $payment_data = [
+        'customer' => $customer_id,
+        'billingType' => 'PIX',
+        'value' => round($valor, 2),
+        'dueDate' => date('Y-m-d'), // Vence hoje
+        'description' => "Mensalidade Sistema " . ucfirst($sistema),
+        'externalReference' => $external_reference
+    ];
+
+    $cobranca = asaas_request('POST', '/payments', $payment_data);
+    $payment_id_asaas = $cobranca['id'];
+
+    if (empty($payment_id_asaas)) {
+        throw new Exception("Falha ao criar cobrança no Asaas.");
+    }
+
+    // 5. Obter QR Code e Copia e Cola
+    $qr_data = asaas_request('GET', "/payments/{$payment_id_asaas}/pixQrCode");
+
+    $qr_code_base64 = $qr_data['encodedImage']; // Base64 da imagem
+    $pix_copia_cola = $qr_data['payload'];      // String copia e cola
+
+    // 6. Salva o registro no Banco de Dados (Status: pending)
+    $sql = "INSERT INTO mensalidade (
+        referente, 
+        valor, 
+        metodo, 
+        status, 
+        external_reference, 
+        transaction_id
+    ) VALUES (
+        ?, ?, 'pix', 'pending', ?, ?
+    )";
+
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("sdss", $referente_data, $valor, $external_reference, $payment_id_asaas);
+    $stmt->execute();
+    $stmt->close();
 
     $conn->close();
 
 } catch (Exception $e) {
-    // Em caso de erro, exibe a mensagem de erro
-    if (isset($conn) && is_object($conn)) {
+    if (isset($conn) && $conn instanceof mysqli) {
         $conn->close();
     }
-    die('<div style="color: red; padding: 20px;">Erro ao gerar pagamento: ' . $e->getMessage() . '</div>');
+    die('<div style="color: red; padding: 20px;">Erro ao gerar pagamento (Asaas): ' . $e->getMessage() . '</div>');
 }
 ?>
 
@@ -138,12 +188,9 @@ try {
             margin-top: 50px;
         }
 
-        /* MODIFICAÇÃO DE ESTILO: QR Code menor e centralizado */
         .qr-code-box {
             max-width: 250px;
-            /* Define largura máxima */
             margin: 0 auto 20px auto;
-            /* Centraliza e adiciona margem inferior */
             border: 2px solid #000;
             padding: 5px;
         }
@@ -163,7 +210,7 @@ try {
 <body>
 
     <div class="container text-center">
-        <h3 class="mb-4">Pagamento PIX - Sistema: <?= ucfirst(htmlspecialchars($sistema)) ?></h3>
+        <h3 class="mb-4">Pagamento PIX (Asaas) - Sistema: <?= ucfirst(htmlspecialchars($sistema)) ?></h3>
         <div id="status-box" class="alert alert-info" role="alert">
             Aguardando pagamento... Não feche esta tela.
         </div>
@@ -185,8 +232,8 @@ try {
                 <?php endif; ?>
 
                 <p class="text-muted small mb-3">
-                    <strong>Transaction ID (MP):</strong> <span
-                        id="paymentIdDisplay"><?= htmlspecialchars($payment_id_mp) ?></span>
+                    <strong>Transaction ID (Asaas):</strong> <span
+                        id="paymentIdDisplay"><?= htmlspecialchars($payment_id_asaas) ?></span>
                 </p>
 
                 <div class="form-floating mb-3">
@@ -203,7 +250,7 @@ try {
     </div>
 
     <script>
-        const PAYMENT_ID = <?= $payment_id_mp ?>;
+        const PAYMENT_ID = '<?= $payment_id_asaas ?>'; // Agora é String (ID do Asaas)
         const SISTEMA = '<?= $sistema ?>';
 
         function copiarPix() {
@@ -219,7 +266,7 @@ try {
                 type: 'GET',
                 data: {
                     sistema: SISTEMA,
-                    payment_id: PAYMENT_ID // O script verificastatus.php usa 'payment_id' para buscar em 'transaction_id'
+                    payment_id: PAYMENT_ID // Envia o ID string do Asaas
                 },
                 success: function (response) {
                     const status = response.status;
@@ -252,8 +299,8 @@ try {
             });
         }
 
-        // Inicia a verificação a cada 15 segundos
-        const intervaloVerificacao = setInterval(verificarStatus, 15000);
+        // Inicia a verificação a cada 10 segundos (um pouco mais rápido)
+        const intervaloVerificacao = setInterval(verificarStatus, 10000);
 
         // Verifica uma vez ao carregar
         $(document).ready(verificarStatus);
