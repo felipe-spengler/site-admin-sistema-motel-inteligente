@@ -18,9 +18,14 @@ if (!empty($asaas_api_key) && strpos($asaas_api_key, '$') !== 0) {
 // 1. Pega parâmetros
 $sistema = isset($_GET['sistema']) ? strtolower($_GET['sistema']) : '';
 $valor = isset($_GET['valor']) ? (float) $_GET['valor'] : 0.0;
+$cpf_pagador = isset($_GET['cpf']) ? preg_replace('/\D/', '', $_GET['cpf']) : '';
 
 if (empty($sistema) || $valor <= 0) {
     die('<div style="color: red; padding: 20px;">Parâmetros de sistema ou valor inválidos.</div>');
+}
+
+if (empty($cpf_pagador)) {
+    die('<div style="color: red; padding: 20px;">CPF/CNPJ do pagador é obrigatório. Volte e informe os dados.</div>');
 }
 
 // 2. Determina o caminho da conexão e o nome do banco para o Webhook
@@ -107,24 +112,24 @@ try {
     }
 
     // 3. Obter ou Criar Cliente no Asaas
-    // Como não temos dados do usuário, cria um cliente genérico para o Sistema
-    // Tenta criar (se já existir com esse email, o Asaas pode retornar erro 400 ou sucesso duplicado, 
-    // mas o ideal é buscar. Para simplificar e evitar falha se o email já existe, vamos usar um email único ou fixo?)
-    // Melhor abordagem simples: Criar um consumidor específico para esse pagamento ou sistema.
     $cliente_nome = "Cliente Sistema " . ucfirst($sistema);
-    $cliente_email = "sistema.{$sistema}@motelinteligente.com"; // Email dummy fixo para o sistema
 
-    // Buscar cliente pelo email para não ficar criando mil duplicados
-    $clientes_busca = asaas_request('GET', "/customers?email=" . urlencode($cliente_email));
+    // Tenta buscar o cliente pelo CPF/CNPJ primeiro (mais garantido que email)
+    // O Asaas permite buscar por cpfCnpj
+    $clientes_busca = asaas_request('GET', "/customers?cpfCnpj=" . $cpf_pagador);
     $customer_id = '';
 
     if (!empty($clientes_busca['data'])) {
         $customer_id = $clientes_busca['data'][0]['id'];
     } else {
-        // Cria novo
+        // Cria novo com o CPF informado
+        // Usa um email único baseado no CPF para evitar conflitos se usar o mesmo email genérico
+        $cliente_email = "cliente.{$cpf_pagador}@motelinteligente.com";
+
         $novo_cliente = asaas_request('POST', '/customers', [
             'name' => $cliente_nome,
-            'email' => $cliente_email
+            'email' => $cliente_email,
+            'cpfCnpj' => $cpf_pagador
         ]);
         $customer_id = $novo_cliente['id'];
     }
