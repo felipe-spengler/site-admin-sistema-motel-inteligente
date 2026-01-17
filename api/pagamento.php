@@ -11,7 +11,7 @@ date_default_timezone_set('America/Sao_Paulo');
 // Constantes do Mercado Pago (TESTE)
 define('MP_ACCESS_TOKEN', getenv('MP_ACCESS_TOKEN') ?: '');
 define('MP_PUBLIC_KEY', getenv('MP_PUBLIC_KEY') ?: '');
-const URL_BASE_WEBHOOK = 'https://motelinteligente.com/api/webhook_sistema.php';
+const URL_BASE_WEBHOOK = 'https://www.motelinteligente.com/api/webhook_sistema.php';
 
 // 1. Pega parâmetros
 $sistema = isset($_GET['sistema']) ? strtolower($_GET['sistema']) : '';

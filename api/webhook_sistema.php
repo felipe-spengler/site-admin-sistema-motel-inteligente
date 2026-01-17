@@ -11,7 +11,8 @@ date_default_timezone_set('America/Sao_Paulo');
 // Definição do arquivo de log
 const LOG_FILE = __DIR__ . '/webhook_log.txt';
 // Token de Produção
-const MP_ACCESS_TOKEN = 'APP_USR-1718861622321115-092422-dbec0bf923560b558e784f323fcf069b-151672516';
+// Token de Produção
+define('MP_ACCESS_TOKEN', getenv('MP_ACCESS_TOKEN') ?: 'TOKEN_NAO_CONFIGURADO');
 
 // Função de Log
 function write_log($message)
