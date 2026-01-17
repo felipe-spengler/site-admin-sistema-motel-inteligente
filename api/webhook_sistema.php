@@ -5,9 +5,22 @@ header('Content-Type: application/json');
 // 1. RESPONDE IMEDIATAMENTE (Obrigatório para MP)
 http_response_code(200); 
 
-// Configurações e includes
-require __DIR__ . '/vendor/autoload.php';
+// Configuração de timezone
 date_default_timezone_set('America/Sao_Paulo');
+
+// Verificar se o autoload existe antes de carregar
+$autoload_path = __DIR__ . '/vendor/autoload.php';
+if (!file_exists($autoload_path)) {
+    // Log do erro e caminho atual
+    $error_msg = "ERRO CRÍTICO: vendor/autoload.php não encontrado em: " . $autoload_path . "\n";
+    $error_msg .= "Diretório atual: " . __DIR__ . "\n";
+    $error_msg .= "Arquivos no diretório: " . implode(', ', scandir(__DIR__)) . "\n";
+    file_put_contents(__DIR__ . '/webhook_log.txt', date('Y-m-d H:i:s') . " - " . $error_msg, FILE_APPEND);
+    exit;
+}
+
+// Configurações e includes
+require $autoload_path;
 
 // Definição do arquivo de log
 const LOG_FILE = __DIR__ . '/webhook_log.txt';
