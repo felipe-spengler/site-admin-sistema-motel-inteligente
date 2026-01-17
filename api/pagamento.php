@@ -80,7 +80,8 @@ function asaas_request($method, $endpoint, $data = null)
 
     $headers = [
         "access_token: " . $asaas_api_key,
-        "Content-Type: application/json"
+        "Content-Type: application/json",
+        "User-Agent: SistemaMotel/1.0"
     ];
     curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 

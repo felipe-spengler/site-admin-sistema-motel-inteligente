@@ -113,7 +113,8 @@ try {
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
         "access_token: " . $asaas_api_key,
-        "Content-Type: application/json"
+        "Content-Type: application/json",
+        "User-Agent: SistemaMotel/1.0"
     ]);
 
     $response = curl_exec($ch);
