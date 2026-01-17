@@ -4,28 +4,21 @@ ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
-// Configurações básicas
+// Configurações e includes
+require __DIR__ . '/vendor/autoload.php'; // Caminho para o autoload do Mercado Pago (CORRIGIDO)
 date_default_timezone_set('America/Sao_Paulo');
 
-// API Key do Asaas
-$asaas_api_key = trim($_SERVER['ASAAS_KEY'] ?? $_ENV['ASAAS_KEY'] ?? getenv('ASAAS_KEY'), "'\"");
-
-// Corrigir problema de variáveis de ambiente que removem o '$' inicial
-if (!empty($asaas_api_key) && strpos($asaas_api_key, '$') !== 0) {
-    $asaas_api_key = '$' . $asaas_api_key;
-}
+// Constantes do Mercado Pago (TESTE)
+define('MP_ACCESS_TOKEN', getenv('MP_ACCESS_TOKEN') ?: '');
+define('MP_PUBLIC_KEY', getenv('MP_PUBLIC_KEY') ?: '');
+const URL_BASE_WEBHOOK = 'https://motelinteligente.com/api/webhook_sistema.php';
 
 // 1. Pega parâmetros
 $sistema = isset($_GET['sistema']) ? strtolower($_GET['sistema']) : '';
 $valor = isset($_GET['valor']) ? (float) $_GET['valor'] : 0.0;
-$cpf_pagador = isset($_GET['cpf']) ? preg_replace('/\D/', '', $_GET['cpf']) : '';
 
 if (empty($sistema) || $valor <= 0) {
     die('<div style="color: red; padding: 20px;">Parâmetros de sistema ou valor inválidos.</div>');
-}
-
-if (empty($cpf_pagador)) {
-    die('<div style="color: red; padding: 20px;">CPF/CNPJ do pagador é obrigatório. Volte e informe os dados.</div>');
 }
 
 // 2. Determina o caminho da conexão e o nome do banco para o Webhook
@@ -54,12 +47,11 @@ if (!file_exists($conexao_path)) {
     die('<div style="color: red; padding: 20px;">Arquivo de conexão não encontrado.</div>');
 }
 
-// Inclui e conecta ao banco
+// Inclui e conecta ao banco (função deve ser 'conectarAoBanco()')
 include $conexao_path;
 $conn = conectarAoBanco();
 
 // Gera um ID de referência único para este pagamento
-// Formato esperado pelo Webhook: MENSALIDADE-SISTEMA-ID
 $external_reference = "MENSALIDADE-{$sistema}-" . uniqid();
 
 // Data de hoje (referente a Outubro/2025 no seu contexto)
@@ -68,120 +60,66 @@ $referente_data = date('Y-m-01');
 // Variáveis para a tela
 $qr_code_base64 = '';
 $pix_copia_cola = '';
-$payment_id_asaas = ''; // Agora é string (ID do Asaas, ex: "pay_...")
-
-/**
- * Função auxiliar para chamar a API do Asaas via cURL
- */
-function asaas_request($method, $endpoint, $data = null)
-{
-    global $asaas_api_key;
-    $url = "https://api.asaas.com/v3" . $endpoint;
-
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
-
-    $headers = [
-        "access_token: " . $asaas_api_key,
-        "Content-Type: application/json",
-        "User-Agent: SistemaMotel/1.0"
-    ];
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-
-    if ($data) {
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
-    }
-
-    $response = curl_exec($ch);
-    $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curl_error = curl_error($ch);
-    curl_close($ch);
-
-    if ($http_code >= 400 || !$response) {
-        throw new Exception("Erro Asaas ($http_code): " . ($response ?: $curl_error));
-    }
-
-    return json_decode($response, true);
-}
+$payment_id_mp = 0; // Armazenará o ID da transação (transaction_id no seu BD)
 
 try {
-    if (!$asaas_api_key) {
-        throw new Exception("Chave de API do Asaas não configurada.");
-    }
+    // 3. Configura e Cria o Pagamento no Mercado Pago
+    \MercadoPago\SDK::setAccessToken(MP_ACCESS_TOKEN);
 
-    // 3. Obter ou Criar Cliente no Asaas
-    $cliente_nome = "Cliente Sistema " . ucfirst($sistema);
+    $payment = new \MercadoPago\Payment();
+    $payment->transaction_amount = round($valor, 2);
+    $payment->description = "Mensalidade Sistema " . ucfirst($sistema);
+    $payment->payment_method_id = "pix";
+    $payment->notification_url = URL_BASE_WEBHOOK . "?banco={$nome_banco}"; // Envia o nome do banco
+    $payment->external_reference = $external_reference;
 
-    // Tenta buscar o cliente pelo CPF/CNPJ primeiro (mais garantido que email)
-    // O Asaas permite buscar por cpfCnpj
-    $clientes_busca = asaas_request('GET', "/customers?cpfCnpj=" . $cpf_pagador);
-    $customer_id = '';
+    // Dados do pagador (exemplo)
+    $payment->payer = array(
+        "email" => "pagador@teste.com",
+        "first_name" => "Cliente",
+        "last_name" => "Teste"
+    );
 
-    if (!empty($clientes_busca['data'])) {
-        $customer_id = $clientes_busca['data'][0]['id'];
+    $payment->save(); // Gera o pagamento
+
+    if ($payment->status == 'pending') {
+        $payment_id_mp = $payment->id; // ID da transação no MP
+
+        // Dados do PIX (CORREÇÃO DE ACESSO AO OBJETO)
+        $qr_code_base64 = $payment->point_of_interaction->transaction_data->qr_code_base64;
+        $pix_copia_cola = $payment->point_of_interaction->transaction_data->qr_code;
+
+        // 4. Salva o registro no Banco de Dados (Status: pending)
+        $sql = "INSERT INTO mensalidade (
+            referente, 
+            valor, 
+            metodo, 
+            status, 
+            external_reference, 
+            transaction_id /* <-- CORRIGIDO AQUI */
+        ) VALUES (
+            ?, ?, 'pix', 'pending', ?, ?
+        )";
+
+        $stmt = $conn->prepare($sql);
+        // O $payment_id_mp é o ID da transação que será salvo em transaction_id
+        $stmt->bind_param("sdsi", $referente_data, $valor, $external_reference, $payment_id_mp);
+        $stmt->execute();
+        $stmt->close();
+
     } else {
-        // Cria novo com o CPF informado
-        // Usa um email único baseado no CPF para evitar conflitos se usar o mesmo email genérico
-        $cliente_email = "cliente.{$cpf_pagador}@motelinteligente.com";
-
-        $novo_cliente = asaas_request('POST', '/customers', [
-            'name' => $cliente_nome,
-            'email' => $cliente_email,
-            'cpfCnpj' => $cpf_pagador,
-            'notificationDisabled' => true
-        ]);
-        $customer_id = $novo_cliente['id'];
+        // Se o MP não retornar 'pending' imediatamente
+        throw new Exception("Erro ao gerar o PIX no Mercado Pago. Status retornado: " . $payment->status);
     }
-
-    // 4. Criar Cobrança (Payment)
-    $payment_data = [
-        'customer' => $customer_id,
-        'billingType' => 'PIX',
-        'value' => round($valor, 2),
-        'dueDate' => date('Y-m-d'), // Vence hoje
-        'description' => "Mensalidade Sistema " . ucfirst($sistema),
-        'externalReference' => $external_reference
-    ];
-
-    $cobranca = asaas_request('POST', '/payments', $payment_data);
-    $payment_id_asaas = $cobranca['id'];
-
-    if (empty($payment_id_asaas)) {
-        throw new Exception("Falha ao criar cobrança no Asaas.");
-    }
-
-    // 5. Obter QR Code e Copia e Cola
-    $qr_data = asaas_request('GET', "/payments/{$payment_id_asaas}/pixQrCode");
-
-    $qr_code_base64 = $qr_data['encodedImage']; // Base64 da imagem
-    $pix_copia_cola = $qr_data['payload'];      // String copia e cola
-
-    // 6. Salva o registro no Banco de Dados (Status: pending)
-    $sql = "INSERT INTO mensalidade (
-        referente, 
-        valor, 
-        metodo, 
-        status, 
-        external_reference, 
-        transaction_id
-    ) VALUES (
-        ?, ?, 'pix', 'pending', ?, ?
-    )";
-
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("sdss", $referente_data, $valor, $external_reference, $payment_id_asaas);
-    $stmt->execute();
-    $stmt->close();
 
     $conn->close();
 
 } catch (Exception $e) {
-    if (isset($conn) && $conn instanceof mysqli) {
+    // Em caso de erro, exibe a mensagem de erro
+    if (isset($conn) && is_object($conn)) {
         $conn->close();
     }
-    die('<div style="color: red; padding: 20px;">Erro ao gerar pagamento (Asaas): ' . $e->getMessage() . '</div>');
+    die('<div style="color: red; padding: 20px;">Erro ao gerar pagamento: ' . $e->getMessage() . '</div>');
 }
 ?>
 
@@ -200,9 +138,12 @@ try {
             margin-top: 50px;
         }
 
+        /* MODIFICAÇÃO DE ESTILO: QR Code menor e centralizado */
         .qr-code-box {
             max-width: 250px;
+            /* Define largura máxima */
             margin: 0 auto 20px auto;
+            /* Centraliza e adiciona margem inferior */
             border: 2px solid #000;
             padding: 5px;
         }
@@ -222,7 +163,7 @@ try {
 <body>
 
     <div class="container text-center">
-        <h3 class="mb-4">Pagamento PIX (Asaas) - Sistema: <?= ucfirst(htmlspecialchars($sistema)) ?></h3>
+        <h3 class="mb-4">Pagamento PIX - Sistema: <?= ucfirst(htmlspecialchars($sistema)) ?></h3>
         <div id="status-box" class="alert alert-info" role="alert">
             Aguardando pagamento... Não feche esta tela.
         </div>
@@ -244,8 +185,8 @@ try {
                 <?php endif; ?>
 
                 <p class="text-muted small mb-3">
-                    <strong>Transaction ID (Asaas):</strong> <span
-                        id="paymentIdDisplay"><?= htmlspecialchars($payment_id_asaas) ?></span>
+                    <strong>Transaction ID (MP):</strong> <span
+                        id="paymentIdDisplay"><?= htmlspecialchars($payment_id_mp) ?></span>
                 </p>
 
                 <div class="form-floating mb-3">
@@ -262,7 +203,7 @@ try {
     </div>
 
     <script>
-        const PAYMENT_ID = '<?= $payment_id_asaas ?>'; // Agora é String (ID do Asaas)
+        const PAYMENT_ID = <?= $payment_id_mp ?>;
         const SISTEMA = '<?= $sistema ?>';
 
         function copiarPix() {
@@ -278,7 +219,7 @@ try {
                 type: 'GET',
                 data: {
                     sistema: SISTEMA,
-                    payment_id: PAYMENT_ID // Envia o ID string do Asaas
+                    payment_id: PAYMENT_ID // O script verificastatus.php usa 'payment_id' para buscar em 'transaction_id'
                 },
                 success: function (response) {
                     const status = response.status;
@@ -311,8 +252,8 @@ try {
             });
         }
 
-        // Inicia a verificação a cada 10 segundos (um pouco mais rápido)
-        const intervaloVerificacao = setInterval(verificarStatus, 10000);
+        // Inicia a verificação a cada 15 segundos
+        const intervaloVerificacao = setInterval(verificarStatus, 15000);
 
         // Verifica uma vez ao carregar
         $(document).ready(verificarStatus);

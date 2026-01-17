@@ -2,7 +2,7 @@
 // Define que o conteúdo é JSON
 header('Content-Type: application/json');
 
-// 1. RESPONDE IMEDIATAMENTE (Evita timeout)
+// 1. RESPONDE IMEDIATAMENTE (Obrigatório para MP - evita timeout)
 http_response_code(200);
 
 // Configuração básica
@@ -10,13 +10,8 @@ date_default_timezone_set('America/Sao_Paulo');
 
 // Definição do arquivo de log
 const LOG_FILE = __DIR__ . '/webhook_log.txt';
-// API Key do Asaas
-$asaas_api_key = trim($_SERVER['ASAAS_KEY'] ?? $_ENV['ASAAS_KEY'] ?? getenv('ASAAS_KEY'), "'\"");
-
-// Corrigir problema de variáveis de ambiente que removem o '$' inicial
-if (!empty($asaas_api_key) && strpos($asaas_api_key, '$') !== 0) {
-    $asaas_api_key = '$' . $asaas_api_key;
-}
+// Token de Produção
+const MP_ACCESS_TOKEN = 'APP_USR-1718861622321115-092422-dbec0bf923560b558e784f323fcf069b-151672516';
 
 // Função de Log
 function write_log($message)
@@ -26,60 +21,39 @@ function write_log($message)
 }
 
 // 2. LOG INICIAL
-write_log("--- Webhook Iniciado (Asaas v3) ---");
+write_log("--- Webhook Iniciado (v2 - cURL) ---");
 
-if (!$asaas_api_key) {
-    write_log("ERRO: Variável de ambiente ASAAS_API_KEY não configurada.");
-    exit;
-}
-
+$nome_banco = isset($_GET['banco']) ? strtolower($_GET['banco']) : '';
 $raw_input = file_get_contents('php://input');
 $data = json_decode($raw_input, true);
 
-// Validação do Payload
-if (empty($data['event']) || empty($data['payment'])) {
-    if (!empty($data)) {
-        write_log("Ignorado: Payload sem 'event' ou 'payment'.");
-    } else {
-        write_log("ERRO: Payload vazio.");
-    }
-    exit;
-}
-
-$event = $data['event'];
-$payment_data = $data['payment'];
-$payment_id = $payment_data['id'] ?? '';
-$external_reference = $payment_data['externalReference'] ?? '';
-
-write_log("Evento: $event | Pagamento ID: $payment_id | Ref: $external_reference");
-
-if (empty($payment_id)) {
-    write_log("ERRO: ID do pagamento não encontrado.");
-    exit;
-}
-
-// 3. DESCOBRIR O BANCO/SISTEMA
-// O sistema espera external_reference no formato: "MENSALIDADE-sistema-..."
-$nome_banco = '';
-
-// Tenta pegar da URL primeiro (fallback/legado)
-if (isset($_GET['banco']) && !empty($_GET['banco'])) {
-    $nome_banco = strtolower($_GET['banco']);
-}
-// Se não veio na URL, tenta extrair da referência
-elseif (!empty($external_reference)) {
-    $parts = explode('-', $external_reference); // Ex: MENSALIDADE-TOLEDO-65a4b...
-    if (count($parts) >= 2) {
-        $nome_banco = strtolower($parts[1]); // Pega 'toledo'
-    }
-}
+// write_log("Banco: " . $nome_banco);
+// write_log("Payload: " . $raw_input);
 
 if (empty($nome_banco)) {
-    write_log("ERRO: Não foi possível identificar o banco (nem via URL, nem via externalReference).");
+    write_log("ERRO: Parâmetro 'banco' não informado na URL (ex: ?banco=toledo).");
     exit;
 }
 
-// 4. CONEXÃO COM BANCO
+if (empty($data['type']) || $data['type'] !== 'payment') {
+    // Ignorar logs excessivos de tópicos irrelevantes, logar apenas se for erro óbvio ou teste
+    if (!empty($data) && ($data['type'] ?? '') !== 'payment') {
+        // write_log("Ignorado: Tipo não é payment.");
+    } else {
+        write_log("ERRO: Payload inválido ou não é 'payment'.");
+    }
+    exit;
+}
+
+$payment_id = $data['data']['id'] ?? 0;
+write_log("Processando pagamento ID: " . $payment_id);
+
+if ($payment_id == 0) {
+    write_log("ERRO: ID não encontrado.");
+    exit;
+}
+
+// 3. CONEXÃO COM BANCO
 $conexao_path = '';
 switch ($nome_banco) {
     case 'abelardo':
@@ -92,7 +66,7 @@ switch ($nome_banco) {
         $conexao_path = '../conexaoXanxere.php';
         break;
     default:
-        write_log("ERRO: Banco '$nome_banco' desconhecido/inválido.");
+        write_log("ERRO: Banco '$nome_banco' desconhecido.");
         exit;
 }
 
@@ -107,14 +81,13 @@ try {
     write_log("Conectando ao banco '$nome_banco' via $conexao_path...");
     $conn = conectarAoBanco();
 
-    // 5. CONSULTA API ASAAS (Confirmação dupla de segurança)
+    // 4. CONSULTA API MERCADO PAGO VIA CURL (Sem SDK)
     $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, "https://api.asaas.com/v3/payments/" . $payment_id);
+    curl_setopt($ch, CURLOPT_URL, "https://api.mercadopago.com/v1/payments/" . $payment_id);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        "access_token: " . $asaas_api_key,
-        "Content-Type: application/json",
-        "User-Agent: SistemaMotel/1.0"
+        "Authorization: Bearer " . MP_ACCESS_TOKEN,
+        "Content-Type: application/json"
     ]);
 
     $response = curl_exec($ch);
@@ -123,7 +96,7 @@ try {
     curl_close($ch);
 
     if ($http_code != 200 || !$response) {
-        write_log("ERRO Asaas API: HTTP $http_code. Curl Error: $curl_error");
+        write_log("ERRO MP API: HTTP $http_code. Curl Error: $curl_error");
         $conn->close();
         exit;
     }
@@ -131,49 +104,43 @@ try {
     $payment_info = json_decode($response, true);
 
     // Pegar dados do retorno
-    $status_asaas = $payment_info['status'] ?? '';
-    // external_reference já foi extraído do payload inicial
+    $status_mp = $payment_info['status'] ?? '';
+    // external_reference é onde guardamos o "MENSALIDADE-cidade-id"
+    $external_reference = $payment_info['external_reference'] ?? '';
 
-    write_log("Asaas Resposta: Status=$status_asaas");
+    write_log("MP Resposta: Status=$status_mp | Ref=$external_reference");
 
-    // Mapeamento de Status Asaas -> Sistema (aproveitando 'approved' do MP)
-    $status_sistema = '';
-
-    // Status de Sucesso no Asaas
-    if (in_array($status_asaas, ['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH'])) {
-        $status_sistema = 'approved';
-    }
-    // Status de Falha/Cancelamento
-    elseif (in_array($status_asaas, ['REFUNDED'])) {
-        $status_sistema = 'refunded';
-    } elseif (in_array($status_asaas, ['OVERDUE', 'REFUND_REQUESTED', 'CHARGEBACK_REQUESTED', 'CHARGEBACK_DISPUTE'])) { // Opcional: tratar overdue como rejected/cancelled?
-        $status_sistema = 'cancelled';
-    }
-
-    // Se não mapeou para algo "final" que nos interessa, encerra
-    if (empty($status_sistema)) {
-        write_log("INFO: Status Asaas '$status_asaas' não mapeado para ação final.");
+    // Valida se status é final
+    $status_finais = ['approved', 'rejected', 'cancelled', 'refunded'];
+    if (!in_array($status_mp, $status_finais)) {
+        write_log("INFO: Status '$status_mp' não é final. Aguardando atualização.");
         $conn->close();
         exit;
     }
 
-    // 6. ATUALIZA BANCO
+    if (empty($external_reference)) {
+        write_log("ERRO: external_reference vazio no pagamento MP.");
+        $conn->close();
+        exit;
+    }
+
+    // 5. ATUALIZA BANCO
     $sql = "UPDATE mensalidade 
             SET status = ?, 
                 transaction_id = ?, 
                 atualizado_em = NOW() 
-            WHERE external_reference = ? AND status = 'pending'"; // Só atualiza se ainda estava pendente (ou pending)
+            WHERE external_reference = ? AND status = 'pending'"; // Só atualiza se ainda estava pendente
 
     $stmt = $conn->prepare($sql);
 
     // sss = string, string, string
-    $stmt->bind_param("sss", $status_sistema, $payment_id, $external_reference);
+    $stmt->bind_param("sss", $status_mp, $payment_id, $external_reference);
     $stmt->execute();
 
     if ($stmt->affected_rows > 0) {
-        write_log("SUCESSO: Pagamento atualizado para '$status_sistema'.");
+        write_log("SUCESSO: Pagamento atualizado no banco.");
     } else {
-        write_log("INFO: Nenhuma linha afetada (já atualizado ou ref não encontrada).");
+        write_log("INFO: Nenhuma linha afetada (provavelmente já estava atualizado ou ref não encontrada).");
     }
 
     $stmt->close();

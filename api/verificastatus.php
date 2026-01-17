@@ -7,10 +7,10 @@ error_reporting(E_ALL);
 header('Content-Type: application/json');
 
 $sistema = isset($_GET['sistema']) ? strtolower($_GET['sistema']) : '';
-$payment_id = isset($_GET['payment_id']) ? $_GET['payment_id'] : '';
+$payment_id = isset($_GET['payment_id']) ? (int)$_GET['payment_id'] : 0;
 
 // Log de recebimento de parâmetros
-if (empty($sistema) || empty($payment_id)) {
+if (empty($sistema) || $payment_id <= 0) {
     echo json_encode(['status' => 'error', 'message' => 'Parâmetros inválidos ou ausentes.', 'sistema_recebido' => $sistema, 'payment_id_recebido' => $payment_id]);
     exit;
 }
@@ -40,15 +40,15 @@ if (!file_exists($conexao_path)) {
 include $conexao_path;
 
 try {
-    $conn = conectarAoBanco();
+    $conn = conectarAoBanco(); 
 
     // Usamos transaction_id, conforme corrigimos anteriormente
     $sql = "SELECT status FROM mensalidade WHERE transaction_id = ? LIMIT 1";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("s", $payment_id);
+    $stmt->bind_param("i", $payment_id);
     $stmt->execute();
     $result = $stmt->get_result();
-
+    
     $status = 'not_found';
     if ($row = $result->fetch_assoc()) {
         $status = $row['status'];
@@ -61,8 +61,7 @@ try {
     echo json_encode(['status' => $status, 'debug_sql' => $sql, 'debug_sistema' => $sistema]);
 
 } catch (Exception $e) {
-    if (isset($conn))
-        $conn->close();
+    if (isset($conn)) $conn->close();
     // Log de erro de banco de dados
     echo json_encode(['status' => 'exception', 'message' => $e->getMessage(), 'sql_error' => $sql]);
 }
