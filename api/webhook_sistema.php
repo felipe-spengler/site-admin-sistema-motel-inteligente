@@ -13,6 +13,11 @@ const LOG_FILE = __DIR__ . '/webhook_log.txt';
 // API Key do Asaas
 $asaas_api_key = trim($_SERVER['ASAAS_KEY'] ?? $_ENV['ASAAS_KEY'] ?? getenv('ASAAS_KEY'), "'\"");
 
+// Corrigir problema de variáveis de ambiente que removem o '$' inicial
+if (!empty($asaas_api_key) && strpos($asaas_api_key, '$') !== 0) {
+    $asaas_api_key = '$' . $asaas_api_key;
+}
+
 // Função de Log
 function write_log($message)
 {

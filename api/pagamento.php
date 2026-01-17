@@ -10,6 +10,11 @@ date_default_timezone_set('America/Sao_Paulo');
 // API Key do Asaas
 $asaas_api_key = trim($_SERVER['ASAAS_KEY'] ?? $_ENV['ASAAS_KEY'] ?? getenv('ASAAS_KEY'), "'\"");
 
+// Corrigir problema de variáveis de ambiente que removem o '$' inicial
+if (!empty($asaas_api_key) && strpos($asaas_api_key, '$') !== 0) {
+    $asaas_api_key = '$' . $asaas_api_key;
+}
+
 // 1. Pega parâmetros
 $sistema = isset($_GET['sistema']) ? strtolower($_GET['sistema']) : '';
 $valor = isset($_GET['valor']) ? (float) $_GET['valor'] : 0.0;
