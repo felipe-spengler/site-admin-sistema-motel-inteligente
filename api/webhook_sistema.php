@@ -11,7 +11,7 @@ date_default_timezone_set('America/Sao_Paulo');
 // Definição do arquivo de log
 const LOG_FILE = __DIR__ . '/webhook_log.txt';
 // API Key do Asaas
-$asaas_api_key = getenv('ASAAS_API_KEY');
+$asaas_api_key = $_SERVER['ASAAS_KEY'] ?? $_ENV['ASAAS_KEY'] ?? getenv('ASAAS_KEY');
 
 // Função de Log
 function write_log($message)
