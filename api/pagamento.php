@@ -129,7 +129,8 @@ try {
         $novo_cliente = asaas_request('POST', '/customers', [
             'name' => $cliente_nome,
             'email' => $cliente_email,
-            'cpfCnpj' => $cpf_pagador
+            'cpfCnpj' => $cpf_pagador,
+            'notificationDisabled' => true
         ]);
         $customer_id = $novo_cliente['id'];
     }
