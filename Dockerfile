@@ -6,9 +6,12 @@ RUN docker-php-ext-install mysqli pdo pdo_mysql && docker-php-ext-enable mysqli 
 # Install system dependencies (git, unzip, tzdata)
 RUN apt-get update && apt-get install -y git unzip tzdata
 
-# Define timezone
+# Define timezone no sistema
 ENV TZ=America/Sao_Paulo
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# 🔥 Define timezone no PHP (ESSA LINHA FALTAVA)
+RUN echo "date.timezone=America/Sao_Paulo" > /usr/local/etc/php/conf.d/timezone.ini
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
