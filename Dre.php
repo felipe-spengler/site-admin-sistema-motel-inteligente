@@ -1,4 +1,6 @@
 <?php
+date_default_timezone_set('America/Sao_Paulo');
+
 // Função para formatar a data no formato MySQL (Y-m-d H:i:s)
 function formatarData($data, $horaInicial = true)
 {
