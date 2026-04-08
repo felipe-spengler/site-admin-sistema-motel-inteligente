@@ -301,17 +301,21 @@ if ($faturamentoPrev > 0 && $locacoesPrev > 0) {
     }
 }
 
-// Integração IA GEMINI
+// Integracão IA GEMINI Expandida
+$capacidade_maxima = $qtdQuartos * $diferencaDias * 4; // 100% locação (4 giros de 6h/dia)
+$margemLiquida = $faturamentoAtual > 0 ? ($lucroLiquido / $faturamentoAtual) * 100 : 0;
+
 $geminiApiKey = getenv('GEMINI_API_KEY') ?: ($_ENV['GEMINI_API_KEY'] ?? '');
 $prompt = "Atue como um consultor sênior de gestão hoteleira e motéis. Analise os seguintes dados atuais do dashboard:\n" .
           "Faturamento: R$ " . number_format($faturamentoAtual, 2, ',', '.') . "\n" .
           "Ticket Médio: R$ " . number_format($ticketMedio, 2, ',', '.') . "\n" .
           "Giro Diário: " . number_format($giroDiario, 2, ',', '.') . "\n" .
+          "Ocupação do Período: " . $locacoesAtual . " locações realizadas em relação a um teto máximo físico estimado de " . $capacidade_maxima . " locações para o mesmo período.\n" .
           "Período: " . date('d/m/Y', strtotime($dataInicio)) . " a " . date('d/m/Y', strtotime($dataFim)) . "\n\n" .
           "Sua tarefa é gerar uma 'Dica de Ouro' curta (máximo 3 frases).\n" .
           "Se o giro estiver baixo, sugira uma estratégia de marketing ou promoção.\n" .
           "Se o ticket médio estiver abaixo de R$ 90,00, sugira upselling de produtos de consumo (frigobar/cozinha).\n" .
-          "Use um tom profissional e motivador. Retorne apenas o texto da dica.";
+          "Use um tom profissional, agressivo comercialmente e motivador. Retorne apenas o texto da dica formatado.";
 
 $geminiData = json_encode(['contents' => [['parts' => [['text' => $prompt]]]]]);
 $ch = curl_init('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' . $geminiApiKey);
@@ -324,12 +328,17 @@ curl_setopt($ch, CURLOPT_TIMEOUT, 6);
 $geminiResponse = curl_exec($ch);
 curl_close($ch);
 
+$insightIAText = "";
 if ($geminiResponse) {
     $geminiJson = json_decode($geminiResponse, true);
     if (isset($geminiJson['candidates'][0]['content']['parts'][0]['text'])) {
-         $insights[] = "🧠 <b>Consultoria IA Avançada:</b><br>" . nl2br(trim($geminiJson['candidates'][0]['content']['parts'][0]['text']));
+         $textoDica = trim($geminiJson['candidates'][0]['content']['parts'][0]['text']);
+         $insights[] = "🧠 <b>Consultoria IA Avançada:</b><br>" . nl2br($textoDica);
+         $insightIAText = strip_tags($textoDica);
     }
 }
+
+$alertaCustos = ($despesasFixas == 0 && $custoLimpeza == 0 && $valorAluguel == 0);
 
 
 $conexao->close();
@@ -374,6 +383,21 @@ $conexao->close();
                 </button>
             </div>
         </div>
+
+        <?php if($alertaCustos): ?>
+        <!-- Aviso de Custos Zerados -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="alert alert-warning border border-yellow-300 bg-yellow-50 text-yellow-800 p-4 mb-0 flex items-center shadow-sm rounded-lg" role="alert">
+                    <span class="text-3xl mr-3">⚠️</span>
+                    <div class="leading-relaxed">
+                        <strong class="font-bold uppercase tracking-wider block mb-1">Ação Necessária: Setup Financeiro</strong>
+                        Configure seus Custos Fixos e Variáveis ali embaixo no botão cinza <b>"Ajustar Parâmetros"</b> para ativar o cálculo de lucratividade. Enquanto os valores estiverem zerados, seu lucro parecerá irrealmente idêntico ao Faturamento Bruto!
+                    </div>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
 
         <!-- Lucro Líquido Dash -->
         <div class="row mb-4">
@@ -696,19 +720,26 @@ $conexao->close();
         function exportToWhats() {
             const faturamento = "R$ <?= number_format($faturamentoAtual, 2, ',', '.') ?>";
             const lucro = "R$ <?= number_format($lucroLiquido, 2, ',', '.') ?>";
+            const margem = "<?= number_format($margemLiquida, 1, ',', '.') ?>%";
             const ticket = "R$ <?= number_format($ticketMedio, 2, ',', '.') ?>";
             const giro = "<?= number_format($giroDiario, 2, ',', '.') ?>";
             const ocupacao = "<?= number_format($taxaOcupacao, 1, ',', '.') ?>%";
             const periodo = "<?= date('d/m/Y', strtotime($dataInicio)) ?> a <?= date('d/m/Y', strtotime($dataFim)) ?>";
+            const dicaIA = <?= json_encode(preg_replace("/\*|_|~/", "", $insightIAText)) ?>;
             
             let texto = `*📊 Relatório Motel Inteligente*\n`;
-            texto += `Período: ${periodo}\n\n`;
+            texto += `_Período: ${periodo}_\n\n`;
             texto += `*Faturamento Bruto:* ${faturamento}\n`;
-            texto += `*Lucro Líquido Real (est.):* ${lucro}\n`;
+            texto += `*Lucro Líquido (est.):* ${lucro} (Margem: ${margem})\n`;
             texto += `*Ticket Médio:* ${ticket}\n`;
             texto += `*Giro Diário:* ${giro} loc/dia\n`;
-            texto += `*Ocupação Média:* ${ocupacao}\n\n`;
-            texto += `_Painel de Gestão Estratégica_`;
+            texto += `*Ocupação Relativa:* ${ocupacao}\n\n`;
+            
+            if (dicaIA && dicaIA.length > 5) {
+                texto += `*💡 Sócio I.A. diz:* ${dicaIA}\n\n`;
+            }
+            
+            texto += `_Gerado via Painel de Gestão Estratégica_`;
             
             const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(texto)}`;
             window.open(url, '_blank');
