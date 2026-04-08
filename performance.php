@@ -196,6 +196,13 @@ $ticketMedio = $locacoesAtual > 0 ? $faturamentoAtual / $locacoesAtual : 0;
 $giroDiario = $locacoesAtual > 0 ? $locacoesAtual / ($qtdQuartos * $diferencaDias) : 0;
 
 $ticketMedioPrev = $locacoesPrev > 0 ? $faturamentoPrev / $locacoesPrev : 0;
+$crescimentoTicket = 0;
+if ($ticketMedioPrev > 0) {
+    $crescimentoTicket = (($ticketMedio - $ticketMedioPrev) / $ticketMedioPrev) * 100;
+}
+
+// Assumindo 4 locações ao longo de 24h como 100% de ocupação ótima para um Motel
+$taxaOcupacao = min(100, ($giroDiario / 4) * 100); 
 
 // Gráfico: Tipos de Quartos
 $sqlTipos = "SELECT q.tipoquarto, COUNT(r.idlocacao) as qtd 
@@ -296,13 +303,15 @@ if ($faturamentoPrev > 0 && $locacoesPrev > 0) {
 
 // Integração IA GEMINI
 $geminiApiKey = getenv('GEMINI_API_KEY') ?: ($_ENV['GEMINI_API_KEY'] ?? '');
-$prompt = "Atue como um Sócio Consultor estratégico de motel. \n" .
-          "Faturamento Atual: R$ " . number_format($faturamentoAtual, 2, ',', '.') . "\n" .
-          "Locações Realizadas: " . $locacoesAtual . "\n" .
-          "Lucro Líquido Real: R$ " . number_format($lucroLiquido, 2, ',', '.') . "\n" .
+$prompt = "Atue como um consultor sênior de gestão hoteleira e motéis. Analise os seguintes dados atuais do dashboard:\n" .
+          "Faturamento: R$ " . number_format($faturamentoAtual, 2, ',', '.') . "\n" .
           "Ticket Médio: R$ " . number_format($ticketMedio, 2, ',', '.') . "\n" .
-          "Giro Diário: " . number_format($giroDiario, 2, ',', '.') . "\n\n" .
-          "Escreva um insight original e conselheiro (máximo 2 a 3 frases) com uma dica de ouro. Não repita os conselhos de lavanderia ou frigobar. Seja amigável. Formate com <b> e use emojis pertinentes.";
+          "Giro Diário: " . number_format($giroDiario, 2, ',', '.') . "\n" .
+          "Período: " . date('d/m/Y', strtotime($dataInicio)) . " a " . date('d/m/Y', strtotime($dataFim)) . "\n\n" .
+          "Sua tarefa é gerar uma 'Dica de Ouro' curta (máximo 3 frases).\n" .
+          "Se o giro estiver baixo, sugira uma estratégia de marketing ou promoção.\n" .
+          "Se o ticket médio estiver abaixo de R$ 90,00, sugira upselling de produtos de consumo (frigobar/cozinha).\n" .
+          "Use um tom profissional e motivador. Retorne apenas o texto da dica.";
 
 $geminiData = json_encode(['contents' => [['parts' => [['text' => $prompt]]]]]);
 $ch = curl_init('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' . $geminiApiKey);
@@ -351,7 +360,20 @@ $conexao->close();
 </head>
 <body>
     <div class="container main-container">
-        <h3 class="text-center mb-4 text-primary">Dashboard de Performance</h3>
+        
+        <!-- Cabeçalho (WhatsApp Export e Período) -->
+        <div class="d-flex justify-content-between align-items-center mb-4 mt-2">
+            <div>
+                <h3 class="mb-1 text-primary fw-bold">Dashboard de Lucratividade</h3>
+                <p class="text-muted mb-0">Exibindo dados de <?= date('d/m/Y', strtotime($dataInicio)) ?> a <?= date('d/m/Y', strtotime($dataFim)) ?></p>
+            </div>
+            <div>
+                <button onclick="exportToWhats()" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded shadow-sm inline-flex items-center transition duration-300">
+                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24"><path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.771-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.299.045-.677.063-1.092-.069-.252-.08-.575-.187-.988-.365-1.739-.751-2.874-2.502-2.961-2.617-.087-.116-.708-.94-.708-1.793s.448-1.273.607-1.446c.159-.173.346-.217.462-.217l.332.006c.106.005.249-.04.39.298.144.347.491 1.2.534 1.287.043.087.072.188.014.304-.058.116-.087.188-.173.289l-.26.304c-.087.086-.177.18-.076.354.101.174.449.741.964 1.201.662.591 1.221.774 1.394.86s.274.072.376-.043c.101-.116.433-.506.549-.68.116-.173.231-.145.39-.087s1.011.477 1.184.564.289.13.332.202c.045.072.045.419-.098.824z"/></svg>
+                    Resumo p/ Whats
+                </button>
+            </div>
+        </div>
 
         <!-- Lucro Líquido Dash -->
         <div class="row mb-4">
@@ -448,27 +470,39 @@ $conexao->close();
           </div>
         </div>
 
-        <!-- KPIs -->
+        <!-- KPIs 4 Colunas -->
         <div class="row mb-4">
-            <div class="col-md-4 mb-3">
+            <div class="col-md-3 mb-3">
                 <div class="card shadow-sm kpi-card">
                     <p class="kpi-label">RevPAR</p>
                     <p class="kpi-value">R$ <?= number_format($revPar, 2, ',', '.') ?></p>
-                    <small class="text-muted">Receita por quarto disponível</small>
+                    <small class="text-muted">Receita por quarto</small>
                 </div>
             </div>
-            <div class="col-md-4 mb-3">
-                <div class="card shadow-sm kpi-card">
+            <div class="col-md-3 mb-3">
+                <div class="card shadow-sm kpi-card position-relative">
                     <p class="kpi-label">Ticket Médio</p>
                     <p class="kpi-value">R$ <?= number_format($ticketMedio, 2, ',', '.') ?></p>
-                    <small class="text-muted">Receita média por locação</small>
+                    <?php if($crescimentoTicket != 0): ?>
+                        <span class="position-absolute top-0 end-0 mt-3 me-3 inline-flex items-center rounded-md px-2 py-1 text-xs font-bold <?= $crescimentoTicket > 0 ? 'bg-green-100 text-green-700 ring-1 ring-inset ring-green-600/20' : 'bg-red-100 text-red-700 ring-1 ring-inset ring-red-600/10' ?>">
+                            <?= $crescimentoTicket > 0 ? '▲' : '▼' ?> <?= number_format(abs($crescimentoTicket), 1, ',', '.') ?>% MoM
+                        </span>
+                    <?php endif; ?>
+                    <small class="text-muted">Receita média por loc.</small>
                 </div>
             </div>
-            <div class="col-md-4 mb-3">
+            <div class="col-md-3 mb-3">
                 <div class="card shadow-sm kpi-card">
                     <p class="kpi-label">Giro Diário</p>
                     <p class="kpi-value"><?= number_format($giroDiario, 2, ',', '.') ?></p>
-                    <small class="text-muted">Locações por quarto ao dia</small>
+                    <small class="text-muted">Locações/quarto/dia</small>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="card shadow-sm kpi-card">
+                    <p class="kpi-label">Taxa de Ocupação</p>
+                    <p class="kpi-value"><?= number_format($taxaOcupacao, 1, ',', '.') ?>%</p>
+                    <small class="text-muted">Ref: Máx. de 4 Giros Dia</small>
                 </div>
             </div>
         </div>
@@ -655,7 +689,30 @@ $conexao->close();
                 }
             });
 
+
         });
+        
+        // WhatsApp Export
+        function exportToWhats() {
+            const faturamento = "R$ <?= number_format($faturamentoAtual, 2, ',', '.') ?>";
+            const lucro = "R$ <?= number_format($lucroLiquido, 2, ',', '.') ?>";
+            const ticket = "R$ <?= number_format($ticketMedio, 2, ',', '.') ?>";
+            const giro = "<?= number_format($giroDiario, 2, ',', '.') ?>";
+            const ocupacao = "<?= number_format($taxaOcupacao, 1, ',', '.') ?>%";
+            const periodo = "<?= date('d/m/Y', strtotime($dataInicio)) ?> a <?= date('d/m/Y', strtotime($dataFim)) ?>";
+            
+            let texto = `*📊 Relatório Motel Inteligente*\n`;
+            texto += `Período: ${periodo}\n\n`;
+            texto += `*Faturamento Bruto:* ${faturamento}\n`;
+            texto += `*Lucro Líquido Real (est.):* ${lucro}\n`;
+            texto += `*Ticket Médio:* ${ticket}\n`;
+            texto += `*Giro Diário:* ${giro} loc/dia\n`;
+            texto += `*Ocupação Média:* ${ocupacao}\n\n`;
+            texto += `_Painel de Gestão Estratégica_`;
+            
+            const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(texto)}`;
+            window.open(url, '_blank');
+        }
     </script>
 </body>
 </html>
