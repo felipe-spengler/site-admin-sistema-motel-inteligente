@@ -305,36 +305,51 @@ if ($faturamentoPrev > 0 && $locacoesPrev > 0) {
 $capacidade_maxima = $qtdQuartos * $diferencaDias * 4; // 100% locação (4 giros de 6h/dia)
 $margemLiquida = $faturamentoAtual > 0 ? ($lucroLiquido / $faturamentoAtual) * 100 : 0;
 
-$geminiApiKey = getenv('GEMINI_API_KEY') ?: ($_ENV['GEMINI_API_KEY'] ?? '');
-$prompt = "Atue como um consultor sênior de gestão hoteleira e motéis. Analise os seguintes dados atuais do dashboard:\n" .
-          "Faturamento: R$ " . number_format($faturamentoAtual, 2, ',', '.') . "\n" .
-          "Ticket Médio: R$ " . number_format($ticketMedio, 2, ',', '.') . "\n" .
-          "Giro Diário: " . number_format($giroDiario, 2, ',', '.') . "\n" .
-          "Ocupação do Período: " . $locacoesAtual . " locações realizadas em relação a um teto máximo físico estimado de " . $capacidade_maxima . " locações para o mesmo período.\n" .
-          "Período: " . date('d/m/Y', strtotime($dataInicio)) . " a " . date('d/m/Y', strtotime($dataFim)) . "\n\n" .
-          "Sua tarefa é gerar uma 'Dica de Ouro' curta (máximo 3 frases).\n" .
-          "Se o giro estiver baixo, sugira uma estratégia de marketing ou promoção.\n" .
-          "Se o ticket médio estiver abaixo de R$ 90,00, sugira upselling de produtos de consumo (frigobar/cozinha).\n" .
-          "Use um tom profissional, agressivo comercialmente e motivador. Retorne apenas o texto da dica formatado.";
-
-$geminiData = json_encode(['contents' => [['parts' => [['text' => $prompt]]]]]);
-$ch = curl_init('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' . $geminiApiKey);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-curl_setopt($ch, CURLOPT_POST, true);
-curl_setopt($ch, CURLOPT_POSTFIELDS, $geminiData);
-curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-curl_setopt($ch, CURLOPT_TIMEOUT, 6); 
-$geminiResponse = curl_exec($ch);
-curl_close($ch);
+$geminiApiKey = getenv('GEMINI_API_KEY') ?: ($_ENV['GEMINI_API_KEY'] ?? ($_SERVER['GEMINI_API_KEY'] ?? ''));
 
 $insightIAText = "";
-if ($geminiResponse) {
-    $geminiJson = json_decode($geminiResponse, true);
-    if (isset($geminiJson['candidates'][0]['content']['parts'][0]['text'])) {
-         $textoDica = trim($geminiJson['candidates'][0]['content']['parts'][0]['text']);
-         $insights[] = "🧠 <b>Consultoria IA Avançada:</b><br>" . nl2br($textoDica);
-         $insightIAText = strip_tags($textoDica);
+
+if (empty($geminiApiKey)) {
+    $insights[] = "⚠️ <b>Alerta de Setup:</b> A variável de ambiente <code>GEMINI_API_KEY</code> não foi encontrada no servidor. A I.A. Sócio Virtual está pausada.";
+} else {
+    $prompt = "Atue como um consultor sênior de gestão hoteleira e motéis. Analise os seguintes dados atuais do dashboard:\n" .
+              "Faturamento: R$ " . number_format($faturamentoAtual, 2, ',', '.') . "\n" .
+              "Ticket Médio: R$ " . number_format($ticketMedio, 2, ',', '.') . "\n" .
+              "Giro Diário: " . number_format($giroDiario, 2, ',', '.') . "\n" .
+              "Ocupação do Período: " . $locacoesAtual . " locações realizadas em relação a um teto máximo físico estimado de " . $capacidade_maxima . " locações para o mesmo período.\n" .
+              "Período: " . date('d/m/Y', strtotime($dataInicio)) . " a " . date('d/m/Y', strtotime($dataFim)) . "\n\n" .
+              "Sua tarefa é gerar uma 'Dica de Ouro' curta (máximo 3 frases).\n" .
+              "Se o giro estiver baixo, sugira uma estratégia de marketing ou promoção.\n" .
+              "Se o ticket médio estiver abaixo de R$ 90,00, sugira upselling de produtos de consumo (frigobar/cozinha).\n" .
+              "Use um tom profissional, agressivo comercialmente e motivador. Retorne apenas o texto da dica formatado.";
+
+    $geminiData = json_encode(['contents' => [['parts' => [['text' => $prompt]]]]]);
+    $ch = curl_init('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' . $geminiApiKey);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $geminiData);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    // Adicionando instrução para ignorar cache explicitly (geralmente curl já não faz por POST, mas garante-se)
+    curl_setopt($ch, CURLOPT_FRESH_CONNECT, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 6); 
+    $geminiResponse = curl_exec($ch);
+    $curl_err = curl_error($ch);
+    curl_close($ch);
+
+    if ($geminiResponse) {
+        $geminiJson = json_decode($geminiResponse, true);
+        if (isset($geminiJson['candidates'][0]['content']['parts'][0]['text'])) {
+             $textoDica = trim($geminiJson['candidates'][0]['content']['parts'][0]['text']);
+             $insights[] = "🧠 <b>Consultoria IA Avançada:</b><br>" . nl2br($textoDica);
+             $insightIAText = strip_tags($textoDica);
+        } else if (isset($geminiJson['error'])) {
+             $insights[] = "⚠️ <b>Erro na IA Gemini:</b> " . htmlspecialchars($geminiJson['error']['message']);
+        } else {
+             $insights[] = "⚠️ <b>Erro IA:</b> Resposta vazia ou não reconhecida do modelo. Tente novamente.";
+        }
+    } else {
+        $insights[] = "⚠️ <b>Erro de Conexão CURL:</b> Falha de comunicação. " . htmlspecialchars($curl_err);
     }
 }
 
