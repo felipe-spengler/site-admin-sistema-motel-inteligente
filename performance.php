@@ -278,27 +278,10 @@ if ($resFirst && $rowFirst = $resFirst->fetch_assoc()) {
 }
 
 // AI Insights
-// Regras de negócio de Gestão (Sócio Virtual)
+// Mantida apenas a regra matemática de Ponto de Equilíbrio (Break-Even) nativa
 if ($faturamentoAtual < ($despesasProrateadas + $deducaoAluguel) && $faturamentoAtual > 0) {
     $falta = ($despesasProrateadas + $deducaoAluguel) - $faturamentoAtual;
-    $insights[] = "📉 Faltam R$ " . number_format($falta, 2, ',', '.') . " para você cobrir seus custos fixos este mês. A partir daí, entramos na zona de lucro real.";
-}
-
-if ($faturamentoAtual > 0) {
-    $margem = ($lucroLiquido / $faturamentoAtual) * 100;
-    if ($margem > 0 && $margem < 30) {
-         $insights[] = "⚠️ <b>Margem Apertada:</b> Seu custo operacional está alto. Como sua lavanderia é interna, considere revisar o desperdício de produtos ou ajustar o valor da hora adicional.";
-    }
-}
-
-if ($tipoAluguel == 'porcentagem') {
-    $insights[] = "📈 <b>Dica de Sócia:</b> Como seu aluguel é sobre o faturamento, foque em aumentar as vendas de Frigobar e Cozinha. Geralmente esses itens têm margem maior e ajudam a diluir o custo do aluguel sobre a locação.";
-}
-
-if ($faturamentoPrev > 0 && $locacoesPrev > 0) {
-    if ($faturamentoAtual < $faturamentoPrev && $locacoesAtual > $locacoesPrev) {
-        $insights[] = "💡 <b>Meta de Ticket Médio:</b> Você está trabalhando mais por menos. Seu Ticket Médio caiu. Sugiro aumentar o valor das Suítes com Hidro em 5% para compensar o desgaste.";
-    }
+    $insights[] = "📉 <b>Ponto de Equilíbrio:</b> Faltam R$ " . number_format($falta, 2, ',', '.') . " para você cobrir todos os seus custos (Aluguel, Limpeza e Fixos). A partir deste valor na tela, começaremos a lucrar.";
 }
 
 // Integracão IA GEMINI Expandida
@@ -314,14 +297,17 @@ if (empty($geminiApiKey)) {
 } else {
     $prompt = "Atue como um consultor sênior de gestão hoteleira e motéis. Analise os seguintes dados atuais do dashboard:\n" .
               "Faturamento: R$ " . number_format($faturamentoAtual, 2, ',', '.') . "\n" .
+              "Lucro Líquido: R$ " . number_format($lucroLiquido, 2, ',', '.') . " (Margem de " . number_format($margemLiquida, 1, ',', '.') . "%)\n" .
               "Ticket Médio: R$ " . number_format($ticketMedio, 2, ',', '.') . "\n" .
               "Giro Diário: " . number_format($giroDiario, 2, ',', '.') . "\n" .
+              "Modelo de Aluguel Configurado: " . ($tipoAluguel == 'porcentagem' ? 'Porcentagem do Faturamento' : 'Valor Fixo Diário/Mensal') . "\n" .
               "Ocupação do Período: " . $locacoesAtual . " locações realizadas em relação a um teto máximo físico estimado de " . $capacidade_maxima . " locações para o mesmo período.\n" .
               "Período: " . date('d/m/Y', strtotime($dataInicio)) . " a " . date('d/m/Y', strtotime($dataFim)) . "\n\n" .
-              "Sua tarefa é gerar uma 'Dica de Ouro' curta (máximo 3 frases).\n" .
-              "Se o giro estiver baixo, sugira uma estratégia de marketing ou promoção.\n" .
-              "Se o ticket médio estiver abaixo de R$ 90,00, sugira upselling de produtos de consumo (frigobar/cozinha).\n" .
-              "Use um tom profissional, agressivo comercialmente e motivador. Retorne apenas o texto da dica formatado.";
+              "Sua tarefa é gerar 3 insights diretos, agressivos comercialmente e separados:\n" .
+              "1) Um sobre a Margem de Lucratividade atual vs Custos.\n" .
+              "2) Um sobre o Ticket Médio (sugira táticas de aumento rápido de vendas, frigobar, se menor que 90 reais).\n" .
+              "3) Um sobre o Giro / Ocupação e rotatividade.\n" .
+              "Seja conciso. Use emojis no início de cada tópico. Não repita informações. Use tags HTML <br> e <b> se precisar destacar, formatando como um relatório executivo.";
 
     $geminiData = json_encode(['contents' => [['parts' => [['text' => $prompt]]]]]);
     $ch = curl_init('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' . $geminiApiKey);
@@ -341,7 +327,12 @@ if (empty($geminiApiKey)) {
         $geminiJson = json_decode($geminiResponse, true);
         if (isset($geminiJson['candidates'][0]['content']['parts'][0]['text'])) {
              $textoDica = trim($geminiJson['candidates'][0]['content']['parts'][0]['text']);
-             $insights[] = "🧠 <b>Consultoria IA Avançada:</b><br>" . nl2br($textoDica);
+             
+             if (strpos($textoDica, '<br>') === false && strpos($textoDica, '<li>') === false) {
+                 $textoDica = nl2br($textoDica);
+             }
+             
+             $insights[] = "🧠 <b>Consultoria IA Avançada:</b><br><br>" . $textoDica;
              $insightIAText = strip_tags($textoDica);
         } else if (isset($geminiJson['error'])) {
              $insights[] = "⚠️ <b>Erro na IA Gemini:</b> " . htmlspecialchars($geminiJson['error']['message']);
