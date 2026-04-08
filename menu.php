@@ -13,7 +13,7 @@ function paginaAtiva($pagina, $pagina_ativa) {
 
 // Função para deixar o menu 'Relatórios' ativo se qualquer página de relatório estiver ativa
 function paginaRelatorioAtiva($pagina_ativa) {
-    $relatorios = array('EvolucaoVendas.php', 'DRE.php', 'ExtratoDiario.php', 'Hospedagens.php', 'demonstrativo_grafico.php');
+    $relatorios = array('EvolucaoVendas.php', 'DRE.php', 'ExtratoDiario.php', 'Hospedagens.php', 'demonstrativo_grafico.php', 'performance.php');
     if (in_array($pagina_ativa, $relatorios)) {
         return 'ativo';
     } else {
@@ -53,11 +53,11 @@ function paginaRelatorioAtiva($pagina_ativa) {
                     </a>
                     
                     <ul class="dropdown-menu dropdown-menu-up" aria-labelledby="dropdownRelatorios">
-                        <li><a class="dropdown-item" href="EvolucaoVendas.php">Evolução de Vendas</a></li>
-                        <li><a class="dropdown-item" href="Dre.php">DRE</a></li>
-                        <li><a class="dropdown-item" href="performance.php">Dashboard de Performance</a></li>
-                        <li><a class="dropdown-item" href="ExtratoDiario.php">Extrato Diário</a></li>
-                        <li><a class="dropdown-item" href="demonstrativo_grafico.php">Gráficos</a></li>
+                        <li><a class="dropdown-item text-wrap" href="EvolucaoVendas.php">Evolução de Vendas</a></li>
+                        <li><a class="dropdown-item text-wrap" href="Dre.php">DRE</a></li>
+                        <li><a class="dropdown-item text-wrap" href="performance.php">Dashboard Lucratividade</a></li>
+                        <li><a class="dropdown-item text-wrap" href="ExtratoDiario.php">Extrato Diário</a></li>
+                        <li><a class="dropdown-item text-wrap" href="demonstrativo_grafico.php">Gráficos</a></li>
                     </ul>
                 </li>
             </ul>
