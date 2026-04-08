@@ -324,7 +324,7 @@ if (empty($geminiApiKey)) {
               "Use um tom profissional, agressivo comercialmente e motivador. Retorne apenas o texto da dica formatado.";
 
     $geminiData = json_encode(['contents' => [['parts' => [['text' => $prompt]]]]]);
-    $ch = curl_init('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' . $geminiApiKey);
+    $ch = curl_init('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' . $geminiApiKey);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
     curl_setopt($ch, CURLOPT_POST, true);
