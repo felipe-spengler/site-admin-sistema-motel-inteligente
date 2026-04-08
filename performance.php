@@ -398,43 +398,54 @@ $conexao->close();
         </div>
 
         <div class="mb-4">
-            <button class="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-2 px-4 border border-gray-300 rounded shadow-sm flex items-center justify-center transition-colors" type="button" data-bs-toggle="collapse" data-bs-target="#collapseSettings">
+            <button class="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-2 px-4 border border-gray-300 rounded shadow-sm flex items-center justify-center transition-colors" type="button" data-bs-toggle="modal" data-bs-target="#modalSettings">
                 ⚙️ Ajustar Parâmetros Financeiros (Custo Fixo e Variável)
-                <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
             </button>
-            <div class="collapse mt-2" id="collapseSettings">
-                <div class="card card-body bg-slate-50 border border-slate-200 shadow-inner">
-                    <form method="post" action="performance.php" class="row g-3">
-                        <input type="hidden" name="period" value="<?= htmlspecialchars($selectedPeriod) ?>">
-                        <input type="hidden" name="update_gestao" value="1">
-                        
-                        <div class="col-md-3">
-                            <label class="form-label font-bold text-gray-700">🏠 Modelo de Aluguel</label>
-                            <select name="tipo_aluguel" class="form-select border-indigo-200">
-                                <option value="porcentagem" <?= $tipoAluguel == 'porcentagem' ? 'selected' : '' ?>>Porcentagem do Faturamento (%)</option>
-                                <option value="fixo" <?= $tipoAluguel == 'fixo' ? 'selected' : '' ?>>Valor Fixo Mensal (R$)</option>
-                            </select>
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label font-bold text-gray-700">Valor do Aluguel (% ou R$)</label>
-                            <input type="text" name="valor_aluguel" class="form-control border-indigo-200" value="<?= number_format($valorAluguel, 2, ',', '') ?>">
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label font-bold text-gray-700">🧼 Limpeza por Locação (R$)</label>
-                            <input type="text" name="custo_limpeza" class="form-control border-indigo-200" value="<?= number_format($custoLimpeza, 2, ',', '') ?>" placeholder="Custo lavanderia/insumo">
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label font-bold text-gray-700">Gasto Fixo Mensal (R$)</label>
-                            <input type="text" name="despesas_fixas" class="form-control border-indigo-200" value="<?= number_format($despesasFixas, 2, ',', '') ?>" placeholder="Soma de luz, net, holerites...">
-                        </div>
-                        <div class="col-12 text-end">
-                            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-6 rounded shadow transition duration-200">
-                                Gravar Parâmetros
-                            </button>
-                        </div>
-                    </form>
-                </div>
+        </div>
+
+        <!-- Modal -->
+        <div class="modal fade" id="modalSettings" tabindex="-1" aria-labelledby="modalSettingsLabel" aria-hidden="true">
+          <div class="modal-dialog modal-lg">
+            <div class="modal-content border-0 shadow-lg">
+              <div class="modal-header bg-slate-100 text-gray-800 border-b border-gray-200">
+                <h5 class="modal-title font-bold" id="modalSettingsLabel">⚙️ Parâmetros Financeiros</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body bg-slate-50 p-4">
+                <form method="post" action="performance.php" class="row g-3">
+                    <input type="hidden" name="period" value="<?= htmlspecialchars($selectedPeriod) ?>">
+                    <input type="hidden" name="update_gestao" value="1">
+                    
+                    <div class="col-md-6 mb-2">
+                        <label class="form-label font-bold text-gray-700">🏠 Modelo de Aluguel</label>
+                        <select name="tipo_aluguel" class="form-select border-indigo-200 shadow-sm">
+                            <option value="porcentagem" <?= $tipoAluguel == 'porcentagem' ? 'selected' : '' ?>>Porcentagem do Faturamento (%)</option>
+                            <option value="fixo" <?= $tipoAluguel == 'fixo' ? 'selected' : '' ?>>Valor Fixo Mensal (R$)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6 mb-2">
+                        <label class="form-label font-bold text-gray-700">Valor do Aluguel (% ou R$)</label>
+                        <input type="text" name="valor_aluguel" class="form-control border-indigo-200 shadow-sm" value="<?= number_format($valorAluguel, 2, ',', '') ?>">
+                    </div>
+                    <div class="col-md-6 mb-2">
+                        <label class="form-label font-bold text-gray-700">🧼 Limpeza por Locação (R$)</label>
+                        <input type="text" name="custo_limpeza" class="form-control border-indigo-200 shadow-sm" value="<?= number_format($custoLimpeza, 2, ',', '') ?>" placeholder="Custo lavanderia/insumo">
+                    </div>
+                    <div class="col-md-6 mb-2">
+                        <label class="form-label font-bold text-gray-700">Gasto Fixo Mensal (R$)</label>
+                        <input type="text" name="despesas_fixas" class="form-control border-indigo-200 shadow-sm" value="<?= number_format($despesasFixas, 2, ',', '') ?>" placeholder="Soma de luz, net, holerites...">
+                    </div>
+                    <div class="col-12 mt-4 text-end">
+                        <button type="button" class="btn btn-secondary bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded shadow me-2 border-0" data-bs-dismiss="modal">Fechar</button>
+                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 border-0 text-white font-semibold py-2 px-6 rounded shadow transition duration-200">
+                            Gravar Parâmetros
+                        </button>
+                    </div>
+                </form>
+              </div>
             </div>
+          </div>
         </div>
 
         <!-- KPIs -->
