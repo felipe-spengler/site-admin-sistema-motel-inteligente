@@ -19,8 +19,15 @@ switch ($filial) {
 
 $mysqli = conectarAoBanco();
 
+// Verifica se o motel aceita pedidos online
+$checkSettings = $mysqli->query("SELECT pedidos_online FROM configuracoes LIMIT 1");
+$aceitaPedidos = false;
+if($checkSettings && $row = $checkSettings->fetch_assoc()) {
+    $aceitaPedidos = ($row['pedidos_online'] == 1);
+}
+
 // Buscar todos os produtos ordenados por categoria
-$query = "SELECT descricao, valorproduto, COALESCE(categoria, 'Diversos') as categoria 
+$query = "SELECT idproduto, descricao, valorproduto, COALESCE(categoria, 'Diversos') as categoria 
           FROM produtos 
           WHERE descricao NOT LIKE 'Estadia%' 
           ORDER BY categoria ASC, descricao ASC";
@@ -133,7 +140,7 @@ $mysqli->close();
         main {
             max-width: 900px;
             margin: 0 auto;
-            padding: 1.5rem 1rem 5rem;
+            padding: 1.5rem 1rem 100px;
         }
 
         .category-section {
@@ -177,6 +184,10 @@ $mysqli->close();
             transition: 0.2s;
         }
 
+        .product-details {
+            flex-grow: 1;
+        }
+
         .product-name {
             font-size: 1.1rem;
             font-weight: 500;
@@ -184,28 +195,134 @@ $mysqli->close();
         }
 
         .product-price {
-            font-size: 1.2rem;
-            font-weight: 700;
-            color: var(--accent);
-            background: rgba(225, 29, 72, 0.1);
-            padding: 5px 12px;
-            border-radius: 8px;
-            white-space: nowrap;
-        }
-
-        .empty-state {
-            text-align: center;
-            padding: 4rem 2rem;
+            font-size: 0.9rem;
+            display: block;
+            margin-top: 4px;
             color: var(--text-muted);
         }
 
+        /* Controles de Quantidade */
+        .qty-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(0,0,0,0.2);
+            padding: 4px;
+            border-radius: 12px;
+        }
+
+        .btn-qty {
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            border: none;
+            background: var(--surface-color);
+            color: #fff;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .qty-value {
+            font-weight: 700;
+            min-width: 20px;
+            text-align: center;
+            color: var(--accent);
+        }
+
+        /* Floating Cart Bar */
+        #cart-bar {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            max-width: 860px;
+            margin: 0 auto;
+            background: var(--accent);
+            color: white;
+            padding: 16px 24px;
+            border-radius: 20px;
+            display: none; /* hidden by default */
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 10px 30px rgba(225, 29, 72, 0.4);
+            z-index: 1000;
+            cursor: pointer;
+            animation: slideUp 0.3s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        /* Modal Pedido */
+        #modal-pedido {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(10px);
+            z-index: 2000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .modal-content {
+            background: var(--surface-color);
+            width: 100%;
+            max-width: 450px;
+            border-radius: 24px;
+            padding: 30px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .modal-header { font-size: 1.5rem; font-weight: 700; margin-bottom: 20px; text-align: center; }
+        
+        input {
+            width: 100%;
+            background: rgba(0,0,0,0.2);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: #fff;
+            padding: 15px;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            margin-bottom: 20px;
+            outline: none;
+            text-align: center;
+        }
+
+        .btn-finalizar {
+            width: 100%;
+            background: var(--accent);
+            color: white;
+            padding: 15px;
+            border-radius: 12px;
+            font-weight: 700;
+            border: none;
+            cursor: pointer;
+        }
+
+        .summary-list {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            background: rgba(0,0,0,0.2);
+            padding: 15px;
+            border-radius: 12px;
+        }
+        .summary-item { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9rem; }
+        
     </style>
 </head>
 <body>
 
     <header>
         <h1>CATÁLOGO DIGITAL</h1>
-        <div class="subtitle">Peça diretamente na recepção informando o número da suite</div>
+        <div class="subtitle">Peça pelo celular e receba na sua suíte</div>
     </header>
 
     <?php if (!empty($produtosPorCategoria)): ?>
@@ -219,6 +336,12 @@ $mysqli->close();
     <?php endif; ?>
 
     <main>
+        <?php if (!$aceitaPedidos): ?>
+            <div style="text-align: center; padding: 20px; color: var(--accent); background: rgba(225, 29, 72, 0.1); border-radius: 12px; margin-bottom: 20px;">
+                ⚠️ Pedidos online não disponíveis temporariamente. Use o telefone da suíte.
+            </div>
+        <?php endif; ?>
+
         <?php if (empty($produtosPorCategoria)): ?>
             <div class="empty-state">
                 <p>Nenhum item disponível no momento.</p>
@@ -230,8 +353,18 @@ $mysqli->close();
                     <div class="product-grid">
                         <?php foreach ($produtos as $produto): ?>
                             <div class="product-card">
-                                <div class="product-name"><?php echo htmlspecialchars($produto['descricao']); ?></div>
-                                <div class="product-price">R$ <?php echo number_format($produto['valorproduto'], 2, ',', '.'); ?></div>
+                                <div class="product-details">
+                                    <div class="product-name"><?php echo htmlspecialchars($produto['descricao']); ?></div>
+                                    <div class="product-price">R$ <?php echo number_format($produto['valorproduto'], 2, ',', '.'); ?></div>
+                                </div>
+                                
+                                <?php if ($aceitaPedidos): ?>
+                                <div class="qty-controls">
+                                    <button class="btn-qty" onclick="changeQty(<?php echo $produto['idproduto']; ?>, -1, '<?php echo addslashes($produto['descricao']); ?>', <?php echo $produto['valorproduto']; ?>)">-</button>
+                                    <div class="qty-value" id="qty-<?php echo $produto['idproduto']; ?>">0</div>
+                                    <button class="btn-qty" onclick="changeQty(<?php echo $produto['idproduto']; ?>, 1, '<?php echo addslashes($produto['descricao']); ?>', <?php echo $produto['valorproduto']; ?>)">+</button>
+                                </div>
+                                <?php endif; ?>
                             </div>
                         <?php endforeach; ?>
                     </div>
@@ -240,14 +373,118 @@ $mysqli->close();
         <?php endif; ?>
     </main>
 
+    <div id="cart-bar" onclick="openModal()">
+        <div><span id="cart-qty">0</span> itens no carrinho</div>
+        <div style="font-weight: 700;">Ver Pedido ➔</div>
+    </div>
+
+    <!-- Modal Finalização -->
+    <div id="modal-pedido">
+        <div class="modal-content">
+            <div class="modal-header">Finalizar Pedido</div>
+            <div class="summary-list" id="cart-summary">
+                <!-- Itens aqui -->
+            </div>
+            
+            <label style="display:block; margin-bottom: 8px; color: var(--text-muted); font-size: 0.8rem;">Número da sua Suíte:</label>
+            <input type="number" id="room-number" placeholder="Digite o número do quarto">
+            
+            <button class="btn-finalizar" onclick="submitOrder()">ENVIAR PEDIDO</button>
+            <button style="width:100%; background:transparent; border:none; color: var(--text-muted); margin-top: 15px; cursor:pointer;" onclick="closeModal()">Cancelar</button>
+        </div>
+    </div>
+
     <script>
+        let cart = {};
+
+        function changeQty(id, delta, name, price) {
+            if (!cart[id]) {
+                cart[id] = { name: name, price: price, qty: 0 };
+            }
+            
+            cart[id].qty += delta;
+            if (cart[id].qty < 0) cart[id].qty = 0;
+            
+            document.getElementById('qty-' + id).innerText = cart[id].qty;
+            updateCartBar();
+        }
+
+        function updateCartBar() {
+            let totalQty = 0;
+            for (let id in cart) { totalQty += cart[id].qty; }
+            
+            const bar = document.getElementById('cart-bar');
+            if (totalQty > 0) {
+                bar.style.display = 'flex';
+                document.getElementById('cart-qty').innerText = totalQty;
+            } else {
+                bar.style.display = 'none';
+            }
+        }
+
+        function openModal() {
+            const summary = document.getElementById('cart-summary');
+            summary.innerHTML = '';
+            for (let id in cart) {
+                if (cart[id].qty > 0) {
+                    summary.innerHTML += `
+                        <div class="summary-item">
+                            <span>${cart[id].qty}x ${cart[id].name}</span>
+                            <span>R$ ${(cart[id].qty * cart[id].price).toFixed(2).replace('.', ',')}</span>
+                        </div>
+                    `;
+                }
+            }
+            document.getElementById('modal-pedido').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('modal-pedido').style.display = 'none';
+        }
+
+        function submitOrder() {
+            const room = document.getElementById('room-number').value;
+            if (!room) {
+                alert("Por favor, informe o número do quarto.");
+                return;
+            }
+
+            let orderItems = [];
+            let total = 0;
+            for (let id in cart) {
+                if (cart[id].qty > 0) {
+                    orderItems.push(`${cart[id].qty}x ${cart[id].name}`);
+                    total += (cart[id].qty * cart[id].price);
+                }
+            }
+
+            const formData = new FormData();
+            formData.append('filial', '<?php echo $filial; ?>');
+            formData.append('quarto', room);
+            formData.append('itens', orderItems.join(', '));
+            formData.append('total', total);
+
+            fetch('api/fazer_pedido.php', {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.success) {
+                    alert("Pedido enviado com sucesso! Aguarde na suíte.");
+                    location.reload();
+                } else {
+                    alert("Erro ao enviar pedido: " + data.message);
+                }
+            });
+        }
+
+        // Smooth scroll
         document.querySelectorAll('.category-nav a').forEach(anchor => {
             anchor.addEventListener('click', function (e) {
                 e.preventDefault();
                 const target = document.querySelector(this.getAttribute('href'));
-                if (target) {
-                    target.scrollIntoView({ behavior: 'smooth' });
-                }
+                if (target) { target.scrollIntoView({ behavior: 'smooth' }); }
             });
         });
     </script>
