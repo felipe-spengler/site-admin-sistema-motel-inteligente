@@ -81,6 +81,11 @@ if (!$success) {
     }
 }
 
+// GARANTE QUE O ARQUIVO SEJA PÚBLICO
+if ($success) {
+    @chmod($targetPath, 0644);
+}
+
 if ($success) {
     $publicPath = "imagens/produtos/" . $newFileName;
     echo json_encode(['success' => true, 'url' => $publicPath]);
