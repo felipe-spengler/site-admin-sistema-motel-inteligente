@@ -27,9 +27,10 @@ if($checkSettings && $row = $checkSettings->fetch_assoc()) {
 }
 
 // Buscar todos os produtos ordenados por categoria
-$query = "SELECT idproduto, descricao, valorproduto, COALESCE(categoria, 'Diversos') as categoria 
+$query = "SELECT idproduto, descricao, valorproduto, COALESCE(categoria, 'Diversos') as categoria, imagem, detalhes 
           FROM produtos 
           WHERE descricao NOT LIKE 'Estadia%' 
+          AND (estoque <> '0' OR estoque IS NULL OR estoque = '-')
           ORDER BY categoria ASC, descricao ASC";
 
 $result = $mysqli->query($query);
@@ -179,9 +180,23 @@ $mysqli->close();
             padding: 1.2rem;
             border: 1px solid rgba(255,255,255,0.05);
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            gap: 15px;
+            align-items: flex-start;
             transition: 0.2s;
+        }
+
+        .product-img {
+            width: 80px;
+            height: 80px;
+            border-radius: 12px;
+            object-fit: cover;
+            background: rgba(0,0,0,0.2);
+            flex-shrink: 0;
+        }
+
+        .product-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(255,255,255,0.1);
         }
 
         .product-details {
@@ -190,15 +205,26 @@ $mysqli->close();
 
         .product-name {
             font-size: 1.1rem;
-            font-weight: 500;
-            color: #f1f5f9;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 4px;
+        }
+
+        .product-desc {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+            margin-bottom: 8px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }
 
         .product-price {
-            font-size: 0.9rem;
-            display: block;
-            margin-top: 4px;
-            color: var(--text-muted);
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--accent);
         }
 
         /* Controles de Quantidade */
@@ -353,8 +379,15 @@ $mysqli->close();
                     <div class="product-grid">
                         <?php foreach ($produtos as $produto): ?>
                             <div class="product-card">
+                                <?php if (!empty($produto['imagem'])): ?>
+                                    <img src="<?php echo htmlspecialchars($produto['imagem']); ?>" class="product-img" alt="<?php echo htmlspecialchars($produto['descricao']); ?>">
+                                <?php endif; ?>
+
                                 <div class="product-details">
                                     <div class="product-name"><?php echo htmlspecialchars($produto['descricao']); ?></div>
+                                    <?php if (!empty($produto['detalhes'])): ?>
+                                        <div class="product-desc"><?php echo htmlspecialchars($produto['detalhes']); ?></div>
+                                    <?php endif; ?>
                                     <div class="product-price">R$ <?php echo number_format($produto['valorproduto'], 2, ',', '.'); ?></div>
                                 </div>
                                 
