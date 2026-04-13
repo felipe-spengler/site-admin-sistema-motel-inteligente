@@ -203,13 +203,13 @@ if ($result) {
 
         .products-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 12px;
         }
 
         .product-card {
             background: var(--card-bg);
-            border-radius: 20px;
+            border-radius: 15px;
             overflow: hidden;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             border: 1px solid rgba(255,255,255,0.05);
@@ -219,52 +219,51 @@ if ($result) {
         }
 
         .product-card:hover {
-            transform: translateY(-10px);
+            transform: translateY(-5px);
             border-color: rgba(255, 46, 99, 0.3);
-            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.4);
         }
 
         .product-img {
             width: 100%;
-            height: 180px;
+            height: 120px;
             object-fit: cover;
             background: #1e293b;
         }
 
         .product-content {
-            padding: 20px;
+            padding: 12px;
             flex-grow: 1;
             display: flex;
             flex-direction: column;
         }
 
         .product-name {
-            font-size: 1.1rem;
+            font-size: 0.95rem;
             font-weight: 600;
-            margin-bottom: 8px;
+            margin-bottom: 4px;
             color: #fff;
-        }
-
-        .product-desc {
-            font-size: 0.85rem;
-            color: #94a3b8;
-            margin-bottom: 15px;
-            flex-grow: 1;
             display: -webkit-box;
             -webkit-line-clamp: 2;
             -webkit-box-orient: vertical;
             overflow: hidden;
+            height: 2.8em; /* Garante alinhamento mesmo com nomes curtos */
+        }
+
+        .product-desc {
+            display: none; /* Esconde descrição na grade para ficar mais compacto */
         }
 
         .product-bottom {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 15px;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+            margin-top: 10px;
         }
 
         .product-price {
-            font-size: 1.4rem;
+            font-size: 1.1rem;
             font-weight: 700;
             color: var(--secondary);
         }
@@ -273,15 +272,18 @@ if ($result) {
             background: var(--primary);
             color: white;
             border: none;
-            padding: 10px 18px;
-            border-radius: 12px;
+            padding: 8px 12px;
+            border-radius: 10px;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s ease;
             display: flex;
             align-items: center;
-            gap: 8px;
+            justify-content: center;
+            gap: 6px;
             text-decoration: none;
+            font-size: 0.8rem;
+            width: 100%;
         }
 
         .order-btn:hover {
