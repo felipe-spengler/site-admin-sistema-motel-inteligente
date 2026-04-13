@@ -4,7 +4,7 @@ header('Content-Type: application/json');
 // Define o diretório de destino
 $targetDir = "../imagens/produtos/";
 if (!file_exists($targetDir)) {
-    @mkdir($targetDir, 0777, true);
+    mkdir($targetDir, 0777, true);
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
