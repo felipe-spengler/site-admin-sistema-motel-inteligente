@@ -27,20 +27,19 @@ if ($res_config && $row = $res_config->fetch_assoc()) {
 }
 
 // 2. Tenta buscar produtos com campos novos, senão usa o modo legado (sem travar)
-$query = "SELECT idproduto, descricao, valorproduto, categoria, imagem, detalhes 
+$query = "SELECT idproduto, descricao, valorproduto, categoria, imagem, detalhes, estoque 
           FROM produtos 
           WHERE descricao NOT LIKE 'Estadia%' 
-          AND (estoque <> '0' OR estoque IS NULL OR estoque = '-')
+          AND (categoria IS NULL OR categoria <> 'Sistema')
           ORDER BY categoria ASC, descricao ASC";
 
 $result = @$mysqli->query($query);
 
 // Se falhou, tenta sem as colunas novas
 if (!$result) {
-    $query = "SELECT idproduto, descricao, valorproduto, 'Diversos' as categoria, NULL as imagem, NULL as detalhes 
+    $query = "SELECT idproduto, descricao, valorproduto, 'Diversos' as categoria, NULL as imagem, NULL as detalhes, estoque 
               FROM produtos 
               WHERE descricao NOT LIKE 'Estadia%' 
-              AND (estoque <> '0' OR estoque IS NULL OR estoque = '-')
               ORDER BY descricao ASC";
     $result = $mysqli->query($query);
 }
@@ -359,7 +358,23 @@ if ($result) {
             box-shadow: 0 -10px 20px rgba(0,0,0,0.5);
         }
 
-        @media (max-width: 600px) {
+        .product-card.out-of-stock {
+            opacity: 0.6;
+            filter: grayscale(1);
+            pointer-events: none;
+        }
+
+        .out-of-stock-badge {
+            background: #64748b;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 0.7rem;
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 5;
+        }
             header h1 { font-size: 1.6rem; }
             .products-grid { grid-template-columns: 1fr; }
             .modal-content { width: 95%; margin: 10% auto; }
@@ -397,8 +412,14 @@ if ($result) {
                 </div>
                 
                 <div class="products-grid">
-                    <?php foreach ($produtos as $p): ?>
-                        <div class="product-card" onclick="openDetails(<?php echo htmlspecialchars(json_encode($p)); ?>)">
+                    <?php foreach ($produtos as $p): 
+                        $semEstoque = ($p['estoque'] === '0');
+                    ?>
+                        <div class="product-card <?php echo $semEstoque ? 'out-of-stock' : ''; ?>" onclick="openDetails(<?php echo htmlspecialchars(json_encode($p)); ?>)">
+                            <?php if ($semEstoque): ?>
+                                <div class="out-of-stock-badge">INDISPONÍVEL</div>
+                            <?php endif; ?>
+
                             <?php if (isset($p['imagem']) && $p['imagem']): ?>
                                 <img src="<?php echo htmlspecialchars($p['imagem']); ?>" class="product-img" loading="lazy">
                             <?php else: ?>
@@ -413,10 +434,12 @@ if ($result) {
                                 
                                 <div class="product-bottom">
                                     <span class="product-price">R$ <?php echo number_format($p['valorproduto'], 2, ',', '.'); ?></span>
-                                    <?php if ($aceitaPedidos): ?>
+                                    <?php if ($aceitaPedidos && !$semEstoque): ?>
                                         <button class="order-btn" onclick="event.stopPropagation(); addToCart(<?php echo $p['idproduto']; ?>, '<?php echo addslashes($p['descricao']); ?>', <?php echo $p['valorproduto']; ?>)">
                                             <i class="fas fa-plus"></i> Pedir
                                         </button>
+                                    <?php elseif ($semEstoque): ?>
+                                        <span style="font-size: 0.8rem; color: #94a3b8;"><i class="fas fa-clock"></i> Esgotado</span>
                                     <?php endif; ?>
                                 </div>
                             </div>
