@@ -1,10 +1,10 @@
 <?php
 header('Content-Type: application/json');
 
-// Define the target directory relative to this file
+// Define o diretório de destino
 $targetDir = "../imagens/produtos/";
 if (!file_exists($targetDir)) {
-    mkdir($targetDir, 0777, true);
+    @mkdir($targetDir, 0777, true);
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -16,66 +16,75 @@ if (!isset($_FILES['foto'])) {
 }
 
 $file = $_FILES['foto'];
-$ext = pathinfo($file['name'], PATHINFO_EXTENSION);
+$ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
 $allowed = ['jpg', 'jpeg', 'png', 'webp'];
 
-if (!in_array(strtolower($ext), $allowed)) {
-    die(json_encode(['success' => false, 'message' => 'Formato não permitido. Use JPG, PNG ou WEBP.']));
+if (!in_array($ext, $allowed)) {
+    die(json_encode(['success' => false, 'message' => 'Formato não permitido']));
 }
 
-// Generate unique filename
-$newFileName = uniqid('prod_') . '.jpg';
-$targetFile = $targetDir . $newFileName;
+// Nome único para evitar conflito
+$newFileName = uniqid('prod_') . '.' . $ext;
+$targetPath = $targetDir . $newFileName;
+$tempFile = $file['tmp_name'];
 
-// Compress and resize image
-$sourcePath = $file['tmp_name'];
-list($width, $height, $type) = getimagesize($sourcePath);
+$success = false;
 
-// Max width/height to keep it light
-$maxDim = 800;
-$newWidth = $width;
-$newHeight = $height;
+// Tenta usar a biblioteca GD para comprimir, se existir
+if (function_exists('imagecreatefromjpeg')) {
+    try {
+        list($width, $height) = getimagesize($tempFile);
+        $maxDim = 800;
+        
+        // Carrega a imagem conforme o tipo
+        if ($ext == 'png') $img = @imagecreatefrompng($tempFile);
+        elseif ($ext == 'webp') $img = @imagecreatefromwebp($tempFile);
+        else $img = @imagecreatefromjpeg($tempFile);
 
-if ($width > $maxDim || $height > $maxDim) {
-    if ($width > $height) {
-        $newWidth = $maxDim;
-        $newHeight = ($height / $width) * $maxDim;
-    } else {
-        $newHeight = $maxDim;
-        $newWidth = ($width / $height) * $maxDim;
+        if ($img) {
+            if ($width > $maxDim || $height > $maxDim) {
+                // Redimensiona
+                $ratio = $maxDim / max($width, $height);
+                $newW = (int)($width * $ratio);
+                $newH = (int)($height * $ratio);
+                $newImg = imagecreatetruecolor($newW, $newH);
+                
+                // Mantém transparência se for PNG
+                if ($ext == 'png') {
+                    imagealphablending($newImg, false);
+                    imagesavealpha($newImg, true);
+                }
+
+                imagecopyresampled($newImg, $img, 0, 0, 0, 0, $newW, $newH, $width, $height);
+                
+                if ($ext == 'png') imagepng($newImg, $targetPath, 8);
+                else imagejpeg($newImg, $targetPath, 80);
+                
+                imagedestroy($newImg);
+            } else {
+                // Salva apenas com compressão
+                if ($ext == 'png') imagepng($img, $targetPath, 8);
+                else imagejpeg($img, $targetPath, 80);
+            }
+            imagedestroy($img);
+            $success = true;
+        }
+    } catch (Exception $e) {
+        $success = false;
     }
 }
 
-$imageOut = imagecreatetruecolor($newWidth, $newHeight);
-switch ($type) {
-    case IMAGETYPE_JPEG:
-        $imageIn = imagecreatefromjpeg($sourcePath);
-        break;
-    case IMAGETYPE_PNG:
-        $imageIn = imagecreatefrompng($sourcePath);
-        // Preserve transparency if needed, but we output as JPG for size
-        imagefill($imageOut, 0, 0, imagecolorallocate($imageOut, 255, 255, 255));
-        break;
-    case IMAGETYPE_WEBP:
-        $imageIn = imagecreatefromwebp($sourcePath);
-        break;
-    default:
-        die(json_encode(['success' => false, 'message' => 'Tipo de imagem não suportado']));
+// Se a compressão falhou ou a lib GD não existe, salva o original
+if (!$success) {
+    if (move_uploaded_file($tempFile, $targetPath)) {
+        $success = true;
+    }
 }
 
-imagecopyresampled($imageOut, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
-
-// Save with 70% quality to be VERY light
-if (imagejpeg($imageOut, $targetFile, 70)) {
-    // Return the PUBLIC URL
-    // We assume the site is at the root of the domain provided
-    // Let's return a relative path that the cardapio.php can use
+if ($success) {
     $publicPath = "imagens/produtos/" . $newFileName;
     echo json_encode(['success' => true, 'url' => $publicPath]);
 } else {
-    echo json_encode(['success' => false, 'message' => 'Erro ao salvar arquivo']);
+    echo json_encode(['success' => false, 'message' => 'Erro ao salvar arquivo no servidor']);
 }
-
-imagedestroy($imageIn);
-imagedestroy($imageOut);
 ?>
