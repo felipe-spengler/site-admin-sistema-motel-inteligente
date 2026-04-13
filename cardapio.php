@@ -19,508 +19,466 @@ switch ($filial) {
 
 $mysqli = conectarAoBanco();
 
-// Verifica se o motel aceita pedidos online
-$checkSettings = $mysqli->query("SELECT pedidos_online FROM configuracoes LIMIT 1");
+// 1. Verifica se o motel aceita pedidos online (com proteção para colunas ausentes)
 $aceitaPedidos = false;
-if($checkSettings && $row = $checkSettings->fetch_assoc()) {
-    $aceitaPedidos = ($row['pedidos_online'] == 1);
+$res_config = @$mysqli->query("SELECT * FROM configuracoes LIMIT 1");
+if ($res_config && $row = $res_config->fetch_assoc()) {
+    $aceitaPedidos = isset($row['pedidos_online']) ? ($row['pedidos_online'] == 1) : false;
 }
 
-// Buscar todos os produtos ordenados por categoria
-$query = "SELECT idproduto, descricao, valorproduto, COALESCE(categoria, 'Diversos') as categoria, imagem, detalhes 
+// 2. Tenta buscar produtos com campos novos, senão usa o modo legado (sem travar)
+$query = "SELECT idproduto, descricao, valorproduto, categoria, imagem, detalhes 
           FROM produtos 
           WHERE descricao NOT LIKE 'Estadia%' 
           AND (estoque <> '0' OR estoque IS NULL OR estoque = '-')
           ORDER BY categoria ASC, descricao ASC";
 
-$result = $mysqli->query($query);
+$result = @$mysqli->query($query);
+
+// Se falhou, tenta sem as colunas novas
+if (!$result) {
+    $query = "SELECT idproduto, descricao, valorproduto, 'Diversos' as categoria, NULL as imagem, NULL as detalhes 
+              FROM produtos 
+              WHERE descricao NOT LIKE 'Estadia%' 
+              AND (estoque <> '0' OR estoque IS NULL OR estoque = '-')
+              ORDER BY descricao ASC";
+    $result = $mysqli->query($query);
+}
+
 $produtosPorCategoria = [];
 $categorias = [];
 
 if ($result) {
     while ($row = $result->fetch_assoc()) {
-        $cat = $row['categoria'];
-        if (!isset($produtosPorCategoria[$cat])) {
-            $produtosPorCategoria[$cat] = [];
+        $cat = isset($row['categoria']) && $row['categoria'] ? $row['categoria'] : 'Diversos';
+        $produtosPorCategoria[$cat][] = $row;
+        if (!in_array($cat, $categorias)) {
             $categorias[] = $cat;
         }
-        $produtosPorCategoria[$cat][] = $row;
     }
 }
-$mysqli->close();
 ?>
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-br">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cardápio Digital - Suíte</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <title>Cardápio Digital - Motel Inteligente</title>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
     <style>
         :root {
-            --bg-color: #0b0f19;
-            --surface-color: #1a2235;
-            --text-main: #e2e8f0;
-            --text-muted: #94a3b8;
-            --accent: #e11d48;
-            --accent-glow: rgba(225, 29, 72, 0.4);
-            --glass-bg: rgba(30, 41, 59, 0.7);
+            --primary: #FF2E63;
+            --secondary: #08D9D6;
+            --dark: #252A34;
+            --light: #EAEAEA;
+            --bg: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --gradient: linear-gradient(135deg, #FF2E63 0%, #ff6b6b 100%);
         }
 
-        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-
-        body {
+        * {
             margin: 0;
             padding: 0;
+            box-sizing: border-box;
             font-family: 'Outfit', sans-serif;
-            background: var(--bg-color);
-            color: var(--text-main);
-            min-height: 100vh;
-            scroll-behavior: smooth;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--light);
+            line-height: 1.6;
+            padding-bottom: 80px;
         }
 
         header {
-            padding: 2.5rem 1.5rem 1rem;
+            background: var(--gradient);
+            padding: 40px 20px;
             text-align: center;
+            border-bottom-left-radius: 30px;
+            border-bottom-right-radius: 30px;
+            box-shadow: 0 10px 30px rgba(255, 46, 99, 0.3);
+            margin-bottom: 30px;
+            position: relative;
+            overflow: hidden;
         }
 
-        h1 {
-            font-size: 2rem;
-            margin: 0;
+        header::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 60%);
+            animation: rotate 20s linear infinite;
+        }
+
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        header h1 {
+            font-size: 2.2rem;
             font-weight: 700;
-            letter-spacing: 1px;
             text-transform: uppercase;
-            color: #fff;
+            letter-spacing: 2px;
+            position: relative;
+            z-index: 1;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
         }
 
-        .subtitle {
-            color: var(--text-muted);
+        header p {
+            font-weight: 300;
+            opacity: 0.9;
             margin-top: 5px;
-            font-size: 0.9rem;
+            position: relative;
+            z-index: 1;
         }
 
-        .category-nav-wrapper {
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            background: rgba(11, 15, 25, 0.9);
-            backdrop-filter: blur(15px);
-            -webkit-backdrop-filter: blur(15px);
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-            padding: 10px 0;
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 0 15px;
         }
 
+        /* Categorias Navigation */
         .category-nav {
             display: flex;
             overflow-x: auto;
-            white-space: nowrap;
-            padding: 5px 15px;
-            gap: 12px;
+            gap: 10px;
+            padding: 10px 0 20px;
+            margin-bottom: 20px;
             scrollbar-width: none;
+            -ms-overflow-style: none;
+            position: sticky;
+            top: 0;
+            background: var(--bg);
+            z-index: 10;
         }
-        
+
         .category-nav::-webkit-scrollbar { display: none; }
 
-        .category-nav a {
+        .category-item {
+            background: var(--card-bg);
+            padding: 10px 20px;
+            border-radius: 50px;
+            white-space: nowrap;
+            color: var(--light);
             text-decoration: none;
-            color: var(--text-muted);
-            background: rgba(255,255,255,0.05);
-            padding: 8px 18px;
-            border-radius: 25px;
             font-size: 0.9rem;
             font-weight: 500;
-            transition: 0.3s;
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: all 0.3s ease;
         }
 
-        .category-nav a:active, .category-nav a:hover {
-            color: #fff;
-            background: var(--accent);
-            box-shadow: 0 0 15px var(--accent-glow);
+        .category-item:hover, .category-item.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            box-shadow: 0 5px 15px rgba(255, 46, 99, 0.4);
         }
 
-        main {
-            max-width: 900px;
-            margin: 0 auto;
-            padding: 1.5rem 1rem 100px;
-        }
-
+        /* Grid */
         .category-section {
-            margin-bottom: 3rem;
+            margin-bottom: 40px;
             scroll-margin-top: 80px;
         }
 
-        .category-title {
-            font-size: 1.4rem;
-            color: #fff;
-            margin-bottom: 1.2rem;
+        .category-header {
             display: flex;
             align-items: center;
-            gap: 10px;
+            margin-bottom: 20px;
+            border-left: 5px solid var(--primary);
+            padding-left: 15px;
+        }
+
+        .category-header h2 {
+            font-size: 1.5rem;
+            color: var(--primary);
             text-transform: uppercase;
             letter-spacing: 1px;
         }
 
-        .category-title::before {
-            content: '';
-            width: 4px;
-            height: 20px;
-            background: var(--accent);
-            border-radius: 2px;
-        }
-
-        .product-grid {
+        .products-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 1rem;
+            gap: 20px;
         }
 
         .product-card {
-            background: var(--glass-bg);
-            border-radius: 16px;
-            padding: 1.2rem;
+            background: var(--card-bg);
+            border-radius: 20px;
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             border: 1px solid rgba(255,255,255,0.05);
             display: flex;
-            gap: 15px;
-            align-items: flex-start;
-            transition: 0.2s;
-        }
-
-        .product-img {
-            width: 80px;
-            height: 80px;
-            border-radius: 12px;
-            object-fit: cover;
-            background: rgba(0,0,0,0.2);
-            flex-shrink: 0;
+            flex-direction: column;
+            backdrop-filter: blur(10px);
         }
 
         .product-card:hover {
-            transform: translateY(-2px);
-            border-color: rgba(255,255,255,0.1);
+            transform: translateY(-10px);
+            border-color: rgba(255, 46, 99, 0.3);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
         }
 
-        .product-details {
+        .product-img {
+            width: 100%;
+            height: 180px;
+            object-fit: cover;
+            background: #1e293b;
+        }
+
+        .product-content {
+            padding: 20px;
             flex-grow: 1;
+            display: flex;
+            flex-direction: column;
         }
 
         .product-name {
             font-size: 1.1rem;
             font-weight: 600;
+            margin-bottom: 8px;
             color: #fff;
-            margin-bottom: 4px;
         }
 
         .product-desc {
             font-size: 0.85rem;
-            color: var(--text-muted);
-            line-height: 1.4;
-            margin-bottom: 8px;
+            color: #94a3b8;
+            margin-bottom: 15px;
+            flex-grow: 1;
             display: -webkit-box;
             -webkit-line-clamp: 2;
             -webkit-box-orient: vertical;
             overflow: hidden;
         }
 
-        .product-price {
-            font-size: 1rem;
-            font-weight: 700;
-            color: var(--accent);
-        }
-
-        /* Controles de Quantidade */
-        .qty-controls {
+        .product-bottom {
             display: flex;
-            align-items: center;
-            gap: 12px;
-            background: rgba(0,0,0,0.2);
-            padding: 4px;
-            border-radius: 12px;
-        }
-
-        .btn-qty {
-            width: 30px;
-            height: 30px;
-            border-radius: 8px;
-            border: none;
-            background: var(--surface-color);
-            color: #fff;
-            font-size: 1.2rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-        }
-
-        .qty-value {
-            font-weight: 700;
-            min-width: 20px;
-            text-align: center;
-            color: var(--accent);
-        }
-
-        /* Floating Cart Bar */
-        #cart-bar {
-            position: fixed;
-            bottom: 20px;
-            left: 20px;
-            right: 20px;
-            max-width: 860px;
-            margin: 0 auto;
-            background: var(--accent);
-            color: white;
-            padding: 16px 24px;
-            border-radius: 20px;
-            display: none; /* hidden by default */
             justify-content: space-between;
             align-items: center;
-            box-shadow: 0 10px 30px rgba(225, 29, 72, 0.4);
-            z-index: 1000;
+            margin-top: 15px;
+        }
+
+        .product-price {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--secondary);
+        }
+
+        .order-btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 12px;
+            font-weight: 600;
             cursor: pointer;
-            animation: slideUp 0.3s ease-out;
-        }
-
-        @keyframes slideUp {
-            from { transform: translateY(100%); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
-        }
-
-        /* Modal Pedido */
-        #modal-pedido {
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8);
-            backdrop-filter: blur(10px);
-            z-index: 2000;
-            display: none;
+            transition: all 0.3s ease;
+            display: flex;
             align-items: center;
-            justify-content: center;
-            padding: 20px;
+            gap: 8px;
+            text-decoration: none;
+        }
+
+        .order-btn:hover {
+            background: #ff4d7d;
+            transform: scale(1.05);
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.9);
+            backdrop-filter: blur(5px);
+            overflow-y: auto;
         }
 
         .modal-content {
-            background: var(--surface-color);
+            background: #1e293b;
+            margin: 5% auto;
+            padding: 0;
+            width: 90%;
+            max-width: 600px;
+            border-radius: 30px;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .modal-img {
             width: 100%;
-            max-width: 450px;
-            border-radius: 24px;
+            height: 300px;
+            object-fit: cover;
+        }
+
+        .modal-body {
             padding: 30px;
-            border: 1px solid rgba(255,255,255,0.1);
         }
-        
-        .modal-header { font-size: 1.5rem; font-weight: 700; margin-bottom: 20px; text-align: center; }
-        
-        input {
-            width: 100%;
-            background: rgba(0,0,0,0.2);
-            border: 1px solid rgba(255,255,255,0.1);
+
+        .close {
+            position: absolute;
+            right: 20px;
+            top: 20px;
             color: #fff;
-            padding: 15px;
-            border-radius: 12px;
-            font-size: 1.1rem;
-            margin-bottom: 20px;
-            outline: none;
-            text-align: center;
-        }
-
-        .btn-finalizar {
-            width: 100%;
-            background: var(--accent);
-            color: white;
-            padding: 15px;
-            border-radius: 12px;
-            font-weight: 700;
-            border: none;
+            font-size: 30px;
+            font-weight: bold;
             cursor: pointer;
+            z-index: 1001;
+            background: rgba(255, 46, 99, 0.8);
+            width: 45px;
+            height: 45px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
         }
 
-        .summary-list {
-            max-height: 200px;
-            overflow-y: auto;
-            margin-bottom: 20px;
-            background: rgba(0,0,0,0.2);
-            padding: 15px;
-            border-radius: 12px;
+        /* Cart Footer */
+        .cart-footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: var(--dark);
+            padding: 15px 20px;
+            display: none;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 900;
+            border-top: 2px solid var(--primary);
+            box-shadow: 0 -10px 20px rgba(0,0,0,0.5);
         }
-        .summary-item { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9rem; }
-        
+
+        @media (max-width: 600px) {
+            header h1 { font-size: 1.6rem; }
+            .products-grid { grid-template-columns: 1fr; }
+            .modal-content { width: 95%; margin: 10% auto; }
+        }
     </style>
 </head>
 <body>
 
     <header>
-        <h1>CATÁLOGO DIGITAL</h1>
-        <div class="subtitle">Peça pelo celular e receba na sua suíte</div>
+        <h1>Cardápio Digital</h1>
+        <p>Filial: <?php echo ucfirst($filial); ?></p>
     </header>
 
-    <?php if (!empty($produtosPorCategoria)): ?>
-    <div class="category-nav-wrapper">
-        <div class="category-nav">
+    <div class="container">
+        <!-- Navegação de Categorias -->
+        <nav class="category-nav">
             <?php foreach ($categorias as $cat): ?>
-                <a href="#cat-<?php echo md5($cat); ?>"><?php echo htmlspecialchars($cat); ?></a>
+                <a href="#cat-<?php echo md5($cat); ?>" class="category-item">
+                    <?php echo htmlspecialchars($cat); ?>
+                </a>
             <?php endforeach; ?>
-        </div>
-    </div>
-    <?php endif; ?>
-
-    <main>
-        <?php if (!$aceitaPedidos): ?>
-            <div style="text-align: center; padding: 20px; color: var(--accent); background: rgba(225, 29, 72, 0.1); border-radius: 12px; margin-bottom: 20px;">
-                ⚠️ Pedidos online não disponíveis temporariamente. Use o telefone da suíte.
-            </div>
-        <?php endif; ?>
+        </nav>
 
         <?php if (empty($produtosPorCategoria)): ?>
-            <div class="empty-state">
-                <p>Nenhum item disponível no momento.</p>
+            <div style="text-align: center; padding: 50px;">
+                <i class="fas fa-utensils" style="font-size: 3rem; color: var(--card-bg); margin-bottom: 20px;"></i>
+                <p>Nenhum produto disponível no momento.</p>
             </div>
-        <?php else: ?>
-            <?php foreach ($produtosPorCategoria as $categoria => $produtos): ?>
-                <section class="category-section" id="cat-<?php echo md5($categoria); ?>">
-                    <h2 class="category-title"><?php echo htmlspecialchars($categoria); ?></h2>
-                    <div class="product-grid">
-                        <?php foreach ($produtos as $produto): ?>
-                            <div class="product-card">
-                                <?php if (!empty($produto['imagem'])): ?>
-                                    <img src="<?php echo htmlspecialchars($produto['imagem']); ?>" class="product-img" alt="<?php echo htmlspecialchars($produto['descricao']); ?>">
-                                <?php endif; ?>
-
-                                <div class="product-details">
-                                    <div class="product-name"><?php echo htmlspecialchars($produto['descricao']); ?></div>
-                                    <?php if (!empty($produto['detalhes'])): ?>
-                                        <div class="product-desc"><?php echo htmlspecialchars($produto['detalhes']); ?></div>
-                                    <?php endif; ?>
-                                    <div class="product-price">R$ <?php echo number_format($produto['valorproduto'], 2, ',', '.'); ?></div>
-                                </div>
-                                
-                                <?php if ($aceitaPedidos): ?>
-                                <div class="qty-controls">
-                                    <button class="btn-qty" onclick="changeQty(<?php echo $produto['idproduto']; ?>, -1, '<?php echo addslashes($produto['descricao']); ?>', <?php echo $produto['valorproduto']; ?>)">-</button>
-                                    <div class="qty-value" id="qty-<?php echo $produto['idproduto']; ?>">0</div>
-                                    <button class="btn-qty" onclick="changeQty(<?php echo $produto['idproduto']; ?>, 1, '<?php echo addslashes($produto['descricao']); ?>', <?php echo $produto['valorproduto']; ?>)">+</button>
-                                </div>
-                                <?php endif; ?>
-                            </div>
-                        <?php endforeach; ?>
-                    </div>
-                </section>
-            <?php endforeach; ?>
         <?php endif; ?>
-    </main>
 
-    <div id="cart-bar" onclick="openModal()">
-        <div><span id="cart-qty">0</span> itens no carrinho</div>
-        <div style="font-weight: 700;">Ver Pedido ➔</div>
+        <?php foreach ($produtosPorCategoria as $categoria => $produtos): ?>
+            <section class="category-section" id="cat-<?php echo md5($categoria); ?>">
+                <div class="category-header">
+                    <h2><?php echo htmlspecialchars($categoria); ?></h2>
+                </div>
+                
+                <div class="products-grid">
+                    <?php foreach ($produtos as $p): ?>
+                        <div class="product-card" onclick="openDetails(<?php echo htmlspecialchars(json_encode($p)); ?>)">
+                            <?php if (isset($p['imagem']) && $p['imagem']): ?>
+                                <img src="<?php echo htmlspecialchars($p['imagem']); ?>" class="product-img" loading="lazy">
+                            <?php else: ?>
+                                <div class="product-img" style="display:flex; align-items:center; justify-content:center; background:#1e293b;">
+                                    <i class="fas fa-image" style="font-size: 2.5rem; color: #334155;"></i>
+                                </div>
+                            <?php endif; ?>
+                            
+                            <div class="product-content">
+                                <h3 class="product-name"><?php echo htmlspecialchars($p['descricao']); ?></h3>
+                                <p class="product-desc"><?php echo htmlspecialchars($p['detalhes'] ?? 'Clique para ver mais detalhes.'); ?></p>
+                                
+                                <div class="product-bottom">
+                                    <span class="product-price">R$ <?php echo number_format($p['valorproduto'], 2, ',', '.'); ?></span>
+                                    <?php if ($aceitaPedidos): ?>
+                                        <button class="order-btn" onclick="event.stopPropagation(); addToCart(<?php echo $p['idproduto']; ?>, '<?php echo addslashes($p['descricao']); ?>', <?php echo $p['valorproduto']; ?>)">
+                                            <i class="fas fa-plus"></i> Pedir
+                                        </button>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </section>
+        <?php endforeach; ?>
     </div>
 
-    <!-- Modal Finalização -->
-    <div id="modal-pedido">
+    <!-- Modal de Detalhes -->
+    <div id="productModal" class="modal">
+        <span class="close" onclick="closeModal()">&times;</span>
         <div class="modal-content">
-            <div class="modal-header">Finalizar Pedido</div>
-            <div class="summary-list" id="cart-summary">
-                <!-- Itens aqui -->
+            <img id="modalImg" src="" class="modal-img">
+            <div class="modal-body">
+                <h2 id="modalName" style="margin-bottom: 10px; color: var(--primary);"></h2>
+                <div id="modalPrice" style="font-size: 1.8rem; font-weight: 700; color: var(--secondary); margin-bottom: 20px;"></div>
+                <div style="height: 2px; background: rgba(255,255,255,0.1); margin-bottom: 20px;"></div>
+                <h4 style="color: #94a3b8; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 1px; margin-bottom: 10px;">Descrição do Produto</h4>
+                <p id="modalDesc" style="color: var(--light); line-height: 1.8; font-size: 1.1rem;"></p>
+                
+                <div id="modalAction" style="margin-top: 30px; text-align: center;">
+                    <!-- Botões de pedido serão inseridos via JS se $aceitaPedidos -->
+                </div>
             </div>
-            
-            <label style="display:block; margin-bottom: 8px; color: var(--text-muted); font-size: 0.8rem;">Número da sua Suíte:</label>
-            <input type="number" id="room-number" placeholder="Digite o número do quarto">
-            
-            <button class="btn-finalizar" onclick="submitOrder()">ENVIAR PEDIDO</button>
-            <button style="width:100%; background:transparent; border:none; color: var(--text-muted); margin-top: 15px; cursor:pointer;" onclick="closeModal()">Cancelar</button>
         </div>
     </div>
 
+    <!-- Script de Funcionalidades -->
     <script>
-        let cart = {};
-
-        function changeQty(id, delta, name, price) {
-            if (!cart[id]) {
-                cart[id] = { name: name, price: price, qty: 0 };
-            }
+        const aceitaPedidosSite = <?php echo $aceitaPedidos ? 'true' : 'false'; ?>;
+        
+        function openDetails(p) {
+            document.getElementById('modalName').innerText = p.descricao;
+            document.getElementById('modalPrice').innerText = 'R$ ' + parseFloat(p.valorproduto).toLocaleString('pt-br', {minimumFractionDigits: 2});
+            document.getElementById('modalDesc').innerText = p.detalhes || 'Nenhuma descrição detalhada disponível.';
             
-            cart[id].qty += delta;
-            if (cart[id].qty < 0) cart[id].qty = 0;
-            
-            document.getElementById('qty-' + id).innerText = cart[id].qty;
-            updateCartBar();
-        }
-
-        function updateCartBar() {
-            let totalQty = 0;
-            for (let id in cart) { totalQty += cart[id].qty; }
-            
-            const bar = document.getElementById('cart-bar');
-            if (totalQty > 0) {
-                bar.style.display = 'flex';
-                document.getElementById('cart-qty').innerText = totalQty;
+            const modalImg = document.getElementById('modalImg');
+            if (p.imagem) {
+                modalImg.src = p.imagem;
+                modalImg.style.display = 'block';
             } else {
-                bar.style.display = 'none';
+                modalImg.style.display = 'none';
             }
-        }
+            
+            if (aceitaPedidosSite) {
+                document.getElementById('modalAction').innerHTML = `<button class="order-btn" style="width:100%; justify-content:center; font-size:1.2rem; padding:15px;" onclick="addToCart(${p.idproduto}, '${p.descricao.replace(/'/g, "\\'")}', ${p.valorproduto})"><i class="fas fa-shopping-basket"></i> ADICIONAR AO PEDIDO</button>`;
+            }
 
-        function openModal() {
-            const summary = document.getElementById('cart-summary');
-            summary.innerHTML = '';
-            for (let id in cart) {
-                if (cart[id].qty > 0) {
-                    summary.innerHTML += `
-                        <div class="summary-item">
-                            <span>${cart[id].qty}x ${cart[id].name}</span>
-                            <span>R$ ${(cart[id].qty * cart[id].price).toFixed(2).replace('.', ',')}</span>
-                        </div>
-                    `;
-                }
-            }
-            document.getElementById('modal-pedido').style.display = 'flex';
+            document.getElementById('productModal').style.display = "block";
         }
 
         function closeModal() {
-            document.getElementById('modal-pedido').style.display = 'none';
+            document.getElementById('productModal').style.display = "none";
         }
 
-        function submitOrder() {
-            const room = document.getElementById('room-number').value;
-            if (!room) {
-                alert("Por favor, informe o número do quarto.");
-                return;
+        window.onclick = function(event) {
+            if (event.target == document.getElementById('productModal')) {
+                closeModal();
             }
-
-            let orderItems = [];
-            let total = 0;
-            for (let id in cart) {
-                if (cart[id].qty > 0) {
-                    orderItems.push(`${cart[id].qty}x ${cart[id].name}`);
-                    total += (cart[id].qty * cart[id].price);
-                }
-            }
-
-            const formData = new FormData();
-            formData.append('filial', '<?php echo $filial; ?>');
-            formData.append('quarto', room);
-            formData.append('itens', orderItems.join(', '));
-            formData.append('total', total);
-
-            fetch('api/fazer_pedido.php', {
-                method: 'POST',
-                body: formData
-            })
-            .then(res => res.json())
-            .then(data => {
-                if(data.success) {
-                    alert("Pedido enviado com sucesso! Aguarde na suíte.");
-                    location.reload();
-                } else {
-                    alert("Erro ao enviar pedido: " + data.message);
-                }
-            });
         }
-
-        // Smooth scroll
-        document.querySelectorAll('.category-nav a').forEach(anchor => {
-            anchor.addEventListener('click', function (e) {
-                e.preventDefault();
-                const target = document.querySelector(this.getAttribute('href'));
-                if (target) { target.scrollIntoView({ behavior: 'smooth' }); }
-            });
-        });
     </script>
-
 </body>
 </html>
