@@ -1,95 +1,100 @@
 <?php
 header('Content-Type: application/json');
 
-// Define o diretório de destino
+// Log de depuração (opcional, pode ver no log do servidor)
+error_reporting(E_ALL);
+ini_set('display_errors', 0);
+
 $targetDir = "../imagens/produtos/";
+
+// 1. Verificações de Pasta
 if (!file_exists($targetDir)) {
-    mkdir($targetDir, 0777, true);
+    if (!mkdir($targetDir, 0777, true)) {
+        die(json_encode(['success' => false, 'message' => "ERRO: Não foi possível criar a pasta de destino em $targetDir. Verifique as permissões da pasta 'imagens'."]));
+    }
+}
+
+if (!is_writable($targetDir)) {
+    die(json_encode(['success' => false, 'message' => "ERRO: O servidor não tem permissão de ESCRITA na pasta $targetDir. Use chmod 777 nessa pasta."]));
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    die(json_encode(['success' => false, 'message' => 'Método não permitido']));
+    die(json_encode(['success' => false, 'message' => 'Método não permitido. Use POST.']));
 }
 
 if (!isset($_FILES['foto'])) {
-    die(json_encode(['success' => false, 'message' => 'Nenhum arquivo enviado']));
+    die(json_encode(['success' => false, 'message' => 'Nenhum arquivo enviado no campo "foto".']));
 }
 
 $file = $_FILES['foto'];
+if ($file['error'] !== UPLOAD_ERR_OK) {
+    die(json_encode(['success' => false, 'message' => 'Erro interno do PHP no upload: Cod ' . $file['error']]));
+}
+
 $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
 $allowed = ['jpg', 'jpeg', 'png', 'webp', 'jfif'];
 
 if (!in_array($ext, $allowed)) {
-    die(json_encode(['success' => false, 'message' => 'Formato não permitido']));
+    die(json_encode(['success' => false, 'message' => "Formato $ext não permitido."]));
 }
 
-// Nome único para evitar conflito
 $newFileName = uniqid('prod_') . '.' . $ext;
 $targetPath = $targetDir . $newFileName;
 $tempFile = $file['tmp_name'];
 
 $success = false;
+$msg = "";
 
-// Tenta usar a biblioteca GD para comprimir, se existir
+// Tenta comprimir
 if (function_exists('imagecreatefromjpeg')) {
     try {
         list($width, $height) = getimagesize($tempFile);
         $maxDim = 800;
         
-        // Carrega a imagem conforme o tipo
         if ($ext == 'png') $img = @imagecreatefrompng($tempFile);
         elseif ($ext == 'webp') $img = @imagecreatefromwebp($tempFile);
         else $img = @imagecreatefromjpeg($tempFile);
 
         if ($img) {
             if ($width > $maxDim || $height > $maxDim) {
-                // Redimensiona
                 $ratio = $maxDim / max($width, $height);
                 $newW = (int)($width * $ratio);
                 $newH = (int)($height * $ratio);
                 $newImg = imagecreatetruecolor($newW, $newH);
-                
-                // Mantém transparência se for PNG
                 if ($ext == 'png') {
                     imagealphablending($newImg, false);
                     imagesavealpha($newImg, true);
                 }
-
                 imagecopyresampled($newImg, $img, 0, 0, 0, 0, $newW, $newH, $width, $height);
-                
-                if ($ext == 'png') imagepng($newImg, $targetPath, 8);
-                else imagejpeg($newImg, $targetPath, 80);
-                
+                if ($ext == 'png') $res = imagepng($newImg, $targetPath, 8);
+                else $res = imagejpeg($newImg, $targetPath, 80);
                 imagedestroy($newImg);
             } else {
-                // Salva apenas com compressão
-                if ($ext == 'png') imagepng($img, $targetPath, 8);
-                else imagejpeg($img, $targetPath, 80);
+                if ($ext == 'png') $res = imagepng($img, $targetPath, 8);
+                else $res = imagejpeg($img, $targetPath, 80);
             }
             imagedestroy($img);
-            $success = true;
+            if ($res) $success = true;
+            else $msg = "Houve erro ao salvar o arquivo comprimido em $targetPath";
         }
     } catch (Exception $e) {
-        $success = false;
+        $msg = "Erro ao processar imagem: " . $e->getMessage();
     }
 }
 
-// Se a compressão falhou ou a lib GD não existe, salva o original
 if (!$success) {
     if (move_uploaded_file($tempFile, $targetPath)) {
         $success = true;
+    } else {
+        $msg = "ERRO FATAL: move_uploaded_file falhou. Verifique permissões de $targetPath ou se a cota de disco estourou.";
     }
 }
 
-// GARANTE QUE O ARQUIVO SEJA PÚBLICO
 if ($success) {
     @chmod($targetPath, 0644);
-}
-
-if ($success) {
     $publicPath = "imagens/produtos/" . $newFileName;
     echo json_encode(['success' => true, 'url' => $publicPath]);
 } else {
-    echo json_encode(['success' => false, 'message' => 'Erro ao salvar arquivo no servidor']);
+    echo json_encode(['success' => false, 'message' => $msg]);
 }
 ?>
