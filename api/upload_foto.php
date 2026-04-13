@@ -1,6 +1,14 @@
 <?php
 header('Content-Type: application/json');
 
+// TRAVA DE SEGURANÇA
+$api_key = "MotelInteligente_Secret_Key_2024";
+$headers = getallheaders();
+if (!isset($headers['X-Api-Key']) || $headers['X-Api-Key'] !== $api_key) {
+    http_response_code(403);
+    die(json_encode(['success' => false, 'message' => 'Acesso negado: Token de segurança inválido ou ausente.']));
+}
+
 // Log de depuração (opcional, pode ver no log do servidor)
 error_reporting(E_ALL);
 ini_set('display_errors', 0);

@@ -1,6 +1,14 @@
 <?php
 header('Content-Type: application/json');
 
+// TRAVA DE SEGURANÇA
+$api_key = "MotelInteligente_Secret_Key_2024";
+$headers = getallheaders();
+if (!isset($headers['X-Api-Key']) || $headers['X-Api-Key'] !== $api_key) {
+    http_response_code(403);
+    die(json_encode(['success' => false, 'message' => 'Acesso negado: Chave de segurança inválida.']));
+}
+
 $targetDir = "../imagens/produtos/";
 $files = [];
 
