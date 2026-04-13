@@ -17,7 +17,7 @@ if (!isset($_FILES['foto'])) {
 
 $file = $_FILES['foto'];
 $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-$allowed = ['jpg', 'jpeg', 'png', 'webp'];
+$allowed = ['jpg', 'jpeg', 'png', 'webp', 'jfif'];
 
 if (!in_array($ext, $allowed)) {
     die(json_encode(['success' => false, 'message' => 'Formato não permitido']));
