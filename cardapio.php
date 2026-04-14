@@ -30,7 +30,7 @@ if ($res_config && $row = $res_config->fetch_assoc()) {
 $query = "SELECT idproduto, descricao, valorproduto, categoria, imagem, detalhes, estoque 
           FROM produtos 
           WHERE descricao NOT LIKE 'Estadia%' 
-          AND (categoria IS NULL OR categoria <> 'Sistema')
+          AND (categoria IS NULL OR (categoria <> 'Sistema' AND categoria <> 'Interno'))
           ORDER BY categoria ASC, descricao ASC";
 
 $result = @$mysqli->query($query);
