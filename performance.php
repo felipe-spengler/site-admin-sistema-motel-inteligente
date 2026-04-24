@@ -255,6 +255,31 @@ if($resHorarios){
 $labelsHorarios = array_keys($horasCompletas);
 $dataHorarios = array_values($horasCompletas);
 
+// Heatmap: Dia da Semana vs Hora
+$sqlHeatmap = "SELECT DAYOFWEEK(r.horainicio) as dia_semana, HOUR(r.horainicio) as hora, COUNT(r.idlocacao) as qtd 
+               FROM registralocado r 
+               JOIN caixa c ON r.idcaixaatual = c.id 
+               WHERE c.horaabre >= '$dataInicio' AND c.horaabre <= '$dataFim' 
+               GROUP BY dia_semana, hora";
+$resHeatmap = $conexao->query($sqlHeatmap);
+$heatmapData = [];
+for ($d = 1; $d <= 7; $d++) {
+    for ($h = 0; $h < 24; $h++) {
+        $heatmapData[$d][$h] = 0;
+    }
+}
+$maxHeatmapValue = 0;
+if($resHeatmap){
+    while($row = $resHeatmap->fetch_assoc()){
+        $d = (int)$row['dia_semana'];
+        $h = (int)$row['hora'];
+        $q = (int)$row['qtd'];
+        $heatmapData[$d][$h] = $q;
+        if ($q > $maxHeatmapValue) $maxHeatmapValue = $q;
+    }
+}
+$diasNomes = [1 => 'Dom', 2 => 'Seg', 3 => 'Ter', 4 => 'Qua', 5 => 'Qui', 6 => 'Sex', 7 => 'Sáb'];
+
 // Finais de Semana vs Dias Uteis
 $sqlWeek = "SELECT 
               SUM(CASE WHEN (DAYOFWEEK(r.horainicio) = 1) OR (DAYOFWEEK(r.horainicio) = 7) OR (DAYOFWEEK(r.horainicio) = 6 AND HOUR(r.horainicio) >= 18) THEN 1 ELSE 0 END) as weekend_qtd,
@@ -371,6 +396,14 @@ $conexao->close();
         .kpi-label { font-size: 0.9rem; color: #6c757d; font-weight: 600; text-transform: uppercase; }
         .chart-container { position: relative; height: 300px; width: 100%; }
         .ai-insight { background-color: #e2e3e5; border-left: 4px solid #0d6efd; padding: 15px; margin-bottom: 10px; border-radius: 4px; }
+        
+        /* Heatmap Styles */
+        .heatmap-container { overflow-x: auto; }
+        .heatmap-table { width: 100%; border-collapse: separate; border-spacing: 2px; table-layout: fixed; min-width: 800px; }
+        .heatmap-cell { height: 35px; border-radius: 3px; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; color: transparent; transition: all 0.2s; cursor: default; }
+        .heatmap-cell:hover { color: #fff; font-weight: bold; transform: scale(1.1); box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); z-index: 10; border: 1px solid #fff; }
+        .heatmap-header { font-size: 0.75rem; font-weight: bold; color: #6b7280; text-align: center; padding-bottom: 5px; }
+        .heatmap-label { font-size: 0.8rem; font-weight: bold; color: #4b5563; text-align: right; padding-right: 10px; width: 50px; }
     </style>
 </head>
 <body>
@@ -551,6 +584,66 @@ $conexao->close();
                             ?>
                             <div class="progress-bar bg-primary" role="progressbar" style="width: <?= $percWeek ?>%">Dias Úteis (<?= $weekData['weekday'] ?>)</div>
                             <div class="progress-bar bg-success" role="progressbar" style="width: <?= $percWkend ?>%">Finais de Semana (<?= $weekData['weekend'] ?>)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mapa de Calor -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card shadow-sm border-t-4 border-orange-500">
+                    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                        <h5 class="card-title fw-bold text-gray-700 mb-0">🔥 Mapa de Calor: Intensidade de Fluxo</h5>
+                        <span class="text-xs text-gray-500">Cruzamento: Dia da Semana vs. Hora do Dia</span>
+                    </div>
+                    <div class="card-body p-4">
+                        <div class="heatmap-container">
+                            <table class="heatmap-table">
+                                <thead>
+                                    <tr>
+                                        <th></th>
+                                        <?php for($h=0; $h<24; $h++): ?>
+                                            <th class="heatmap-header"><?= $h ?>h</th>
+                                        <?php endfor; ?>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach($diasNomes as $numDia => $nomeDia): ?>
+                                        <tr>
+                                            <td class="heatmap-label"><?= $nomeDia ?></td>
+                                            <?php for($h=0; $h<24; $h++): 
+                                                $val = $heatmapData[$numDia][$h];
+                                                $opacity = $maxHeatmapValue > 0 ? ($val / $maxHeatmapValue) : 0;
+                                                // Escala de cor: Indigo/Violeta para intensidades
+                                                $bgColor = "rgba(79, 70, 229, $opacity)";
+                                                if ($opacity == 0) $bgColor = "#f3f4f6";
+                                                $textColor = $opacity > 0.5 ? "#fff" : "#1f2937";
+                                            ?>
+                                                <td>
+                                                    <div class="heatmap-cell" 
+                                                         style="background-color: <?= $bgColor ?>; color: <?= $textColor ?>"
+                                                         title="<?= $nomeDia ?>, <?= $h ?>h: <?= $val ?> locações">
+                                                        <?= $val ?>
+                                                    </div>
+                                                </td>
+                                            <?php endfor; ?>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="mt-3 d-flex align-items-center justify-content-end text-xs text-gray-500">
+                            <span class="mr-2">Menos Fluxo</span>
+                            <div class="flex space-x-1">
+                                <div class="w-4 h-4 rounded-sm" style="background-color: #f3f4f6"></div>
+                                <div class="w-4 h-4 rounded-sm" style="background-color: rgba(79, 70, 229, 0.2)"></div>
+                                <div class="w-4 h-4 rounded-sm" style="background-color: rgba(79, 70, 229, 0.5)"></div>
+                                <div class="w-4 h-4 rounded-sm" style="background-color: rgba(79, 70, 229, 0.8)"></div>
+                                <div class="w-4 h-4 rounded-sm" style="background-color: rgba(79, 70, 229, 1)"></div>
+                            </div>
+                            <span class="ml-2">Mais Fluxo</span>
                         </div>
                     </div>
                 </div>
