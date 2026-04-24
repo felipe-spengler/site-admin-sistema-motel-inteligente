@@ -400,10 +400,21 @@ $conexao->close();
         /* Heatmap Styles */
         .heatmap-container { overflow-x: auto; }
         .heatmap-table { width: 100%; border-collapse: separate; border-spacing: 2px; table-layout: fixed; min-width: 800px; }
-        .heatmap-cell { height: 35px; border-radius: 3px; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; color: transparent; transition: all 0.2s; cursor: default; }
-        .heatmap-cell:hover { color: #fff; font-weight: bold; transform: scale(1.1); box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); z-index: 10; border: 1px solid #fff; }
-        .heatmap-header { font-size: 0.75rem; font-weight: bold; color: #6b7280; text-align: center; padding-bottom: 5px; }
-        .heatmap-label { font-size: 0.8rem; font-weight: bold; color: #4b5563; text-align: right; padding-right: 10px; width: 50px; }
+        .heatmap-cell { height: 35px; border-radius: 3px; font-size: 0.75rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s; cursor: default; font-weight: bold; }
+        .heatmap-cell:hover { transform: scale(1.15); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); z-index: 50; border: 2px solid #fff; }
+        .heatmap-header { font-size: 0.7rem; font-weight: bold; color: #9ca3af; text-align: center; padding-bottom: 5px; }
+        .heatmap-label { font-size: 0.75rem; font-weight: bold; color: #4b5563; text-align: right; padding-right: 10px; width: 45px; }
+        
+        @media (max-width: 768px) {
+            .heatmap-cell { height: 30px; font-size: 0.65rem; }
+            .heatmap-label { width: 35px; font-size: 0.65rem; }
+        }
+
+        .modal-heatmap-body { background: #111827; color: white; }
+        .rotate-hint { display: none; }
+        @media (max-width: 768px) and (orientation: portrait) {
+            .rotate-hint { display: block; background: #374151; padding: 10px; border-radius: 8px; margin-bottom: 15px; border: 1px dashed #6b7280; }
+        }
     </style>
 </head>
 <body>
@@ -596,56 +607,99 @@ $conexao->close();
                 <div class="card shadow-sm border-t-4 border-orange-500">
                     <div class="card-header bg-white d-flex justify-content-between align-items-center">
                         <h5 class="card-title fw-bold text-gray-700 mb-0">🔥 Mapa de Calor: Intensidade de Fluxo</h5>
-                        <span class="text-xs text-gray-500">Cruzamento: Dia da Semana vs. Hora do Dia</span>
+                        <button class="btn btn-sm btn-outline-secondary d-md-none" data-bs-toggle="modal" data-bs-target="#heatmapModal">
+                            🔍 Tela Cheia
+                        </button>
+                        <span class="text-xs text-gray-500 d-none d-md-inline">Cruzamento: Dia da Semana vs. Hora do Dia</span>
                     </div>
                     <div class="card-body p-4">
                         <div class="heatmap-container">
-                            <table class="heatmap-table">
-                                <thead>
-                                    <tr>
-                                        <th></th>
-                                        <?php for($h=0; $h<24; $h++): ?>
-                                            <th class="heatmap-header"><?= $h ?>h</th>
-                                        <?php endfor; ?>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php foreach($diasNomes as $numDia => $nomeDia): ?>
+                            <?php 
+                            // Função auxiliar para cores do heatmap
+                            function getThermalColor($val, $max) {
+                                if ($val <= 0 || $max <= 0) return ['bg' => '#f3f4f6', 'text' => '#9ca3af'];
+                                $ratio = $val / $max;
+                                if ($ratio < 0.15) return ['bg' => '#dbeafe', 'text' => '#1e40af']; // Light Blue
+                                if ($ratio < 0.35) return ['bg' => '#60a5fa', 'text' => '#eff6ff']; // Blue
+                                if ($ratio < 0.55) return ['bg' => '#4ade80', 'text' => '#064e3b']; // Green
+                                if ($ratio < 0.75) return ['bg' => '#facc15', 'text' => '#713f12']; // Yellow
+                                if ($ratio < 0.90) return ['bg' => '#fb923c', 'text' => '#fff'];    // Orange
+                                return ['bg' => '#f87171', 'text' => '#fff'];                    // Red
+                            }
+                            
+                            $renderHeatmap = function($heatmapData, $diasNomes, $maxHeatmapValue, $isDark = false) use (&$getThermalColor) {
+                                ?>
+                                <table class="heatmap-table">
+                                    <thead>
                                         <tr>
-                                            <td class="heatmap-label"><?= $nomeDia ?></td>
-                                            <?php for($h=0; $h<24; $h++): 
-                                                $val = $heatmapData[$numDia][$h];
-                                                $opacity = $maxHeatmapValue > 0 ? ($val / $maxHeatmapValue) : 0;
-                                                // Escala de cor: Indigo/Violeta para intensidades
-                                                $bgColor = "rgba(79, 70, 229, $opacity)";
-                                                if ($opacity == 0) $bgColor = "#f3f4f6";
-                                                $textColor = $opacity > 0.5 ? "#fff" : "#1f2937";
-                                            ?>
-                                                <td>
-                                                    <div class="heatmap-cell" 
-                                                         style="background-color: <?= $bgColor ?>; color: <?= $textColor ?>"
-                                                         title="<?= $nomeDia ?>, <?= $h ?>h: <?= $val ?> locações">
-                                                        <?= $val ?>
-                                                    </div>
-                                                </td>
+                                            <th></th>
+                                            <?php for($h=0; $h<24; $h++): ?>
+                                                <th class="heatmap-header" style="<?= $isDark ? 'color: #9ca3af' : '' ?>"><?= $h ?>h</th>
                                             <?php endfor; ?>
                                         </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach($diasNomes as $numDia => $nomeDia): ?>
+                                            <tr>
+                                                <td class="heatmap-label" style="<?= $isDark ? 'color: #e5e7eb' : '' ?>"><?= $nomeDia ?></td>
+                                                <?php for($h=0; $h<24; $h++): 
+                                                    $val = $heatmapData[$numDia][$h];
+                                                    $colors = getThermalColor($val, $maxHeatmapValue);
+                                                ?>
+                                                    <td>
+                                                        <div class="heatmap-cell" 
+                                                             style="background-color: <?= $colors['bg'] ?>; color: <?= $colors['text'] ?>; <?= ($val == 0 && $isDark) ? 'background-color: #1f2937' : '' ?>"
+                                                             title="<?= $nomeDia ?>, <?= $h ?>h: <?= $val ?> locações">
+                                                            <?= $val > 0 ? $val : '' ?>
+                                                        </div>
+                                                    </td>
+                                                <?php endfor; ?>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                                <?php
+                            };
+                            
+                            $renderHeatmap($heatmapData, $diasNomes, $maxHeatmapValue);
+                            ?>
                         </div>
-                        <div class="mt-3 d-flex align-items-center justify-content-end text-xs text-gray-500">
-                            <span class="mr-2">Menos Fluxo</span>
+                        <div class="mt-4 d-flex align-items-center justify-content-center text-xs font-bold uppercase tracking-wider text-gray-400">
+                            <span class="mr-3">Menor Fluxo</span>
                             <div class="flex space-x-1">
-                                <div class="w-4 h-4 rounded-sm" style="background-color: #f3f4f6"></div>
-                                <div class="w-4 h-4 rounded-sm" style="background-color: rgba(79, 70, 229, 0.2)"></div>
-                                <div class="w-4 h-4 rounded-sm" style="background-color: rgba(79, 70, 229, 0.5)"></div>
-                                <div class="w-4 h-4 rounded-sm" style="background-color: rgba(79, 70, 229, 0.8)"></div>
-                                <div class="w-4 h-4 rounded-sm" style="background-color: rgba(79, 70, 229, 1)"></div>
+                                <div class="w-6 h-3 rounded-full" style="background-color: #dbeafe"></div>
+                                <div class="w-6 h-3 rounded-full" style="background-color: #60a5fa"></div>
+                                <div class="w-6 h-3 rounded-full" style="background-color: #4ade80"></div>
+                                <div class="w-6 h-3 rounded-full" style="background-color: #facc15"></div>
+                                <div class="w-6 h-3 rounded-full" style="background-color: #fb923c"></div>
+                                <div class="w-6 h-3 rounded-full" style="background-color: #f87171"></div>
                             </div>
-                            <span class="ml-2">Mais Fluxo</span>
+                            <span class="ml-3">Maior Fluxo</span>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal Heatmap Fullscreen -->
+        <div class="modal fade" id="heatmapModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-fullscreen">
+                <div class="modal-content border-0">
+                    <div class="modal-header bg-gray-900 text-white border-0">
+                        <h5 class="modal-title font-bold">🔥 Mapa de Calor Completo</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body modal-heatmap-body p-3">
+                        <div class="rotate-hint text-center text-sm">
+                            📱 <b>Dica:</b> Gire o celular para o modo <b>Paisagem</b> para ver melhor todos os horários!
+                        </div>
+                        <div class="heatmap-container">
+                            <?php $renderHeatmap($heatmapData, $diasNomes, $maxHeatmapValue, true); ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
                 </div>
             </div>
         </div>
