@@ -12,3 +12,5 @@ services:
       - .env
     environment:
       TZ: America/Sao_Paulo
+    volumes:
+      - ./imagens:/var/www/html/imagens
