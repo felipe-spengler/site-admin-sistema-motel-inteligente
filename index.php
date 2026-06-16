@@ -18,6 +18,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             case "abelardo": include 'conexaoAbelardo.php'; break;
             case "toledo": include 'conexao2.php'; break;
             case "xanxere": include 'conexaoXanxere.php'; break;
+            case "venus": include 'conexaoVenus.php'; break;
             default: $mensagem_erro = "Filial inválida."; break;
         }
 
@@ -186,6 +187,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <option value="abelardo" <?php echo ($filial_selecionada === 'abelardo') ? 'selected' : ''; ?>>Abelardo Luz</option>
                         <option value="toledo" <?php echo ($filial_selecionada === 'toledo') ? 'selected' : ''; ?>>Toledo</option>
                         <option value="xanxere" <?php echo ($filial_selecionada === 'xanxere') ? 'selected' : ''; ?>>Xanxerê</option>
+                        <option value="venus" <?php echo ($filial_selecionada === 'venus') ? 'selected' : ''; ?>>Venus (Acreúna)</option>
                     </select>
                 </div>
 

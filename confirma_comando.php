@@ -37,6 +37,9 @@ switch ($filial) {
     case "xanxere":
         $tabela = "comandos_xanxere";
         break;
+    case "venus":
+        $tabela = "comandos_venus";
+        break;
     default:
         echo "Filial inválida.";
         exit;

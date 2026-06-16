@@ -29,6 +29,9 @@ switch ($filial) {
     case "xanxere":
         $tabela = "comandos_xanxere";
         break;
+    case "venus":
+        $tabela = "comandos_venus";
+        break;
     default:
         // Filial inválida
         echo json_encode(null);
