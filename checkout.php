@@ -385,7 +385,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $pdo = conectarAoBancoComandosPDO();
             if ($pdo) {
                 $tabela_comando = "comandos_" . strtolower($filial);
-                $cmd_string = "encerrar " . $idLocacao . ($imprimir ? " imprimir" : "");
+                $cmd_string = "encerrar " . $idLocacao;
 
                 $stmtCmd = $pdo->prepare("INSERT INTO {$tabela_comando} (id_unidade, comando, executado, criado_em) VALUES (0, :comando, 0, NOW())");
                 $stmtCmd->execute([':comando' => $cmd_string]);
@@ -768,13 +768,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             <span id="label_total_pago" class="fw-bold fs-5">R$ 0,00</span>
                         </div>
 
-                        <!-- Opção de Impressão -->
-                        <div class="form-check form-switch mb-3 p-3 rounded" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05);">
-                            <input class="form-check-input ms-0 me-2" type="checkbox" role="switch" id="imprimir" name="imprimir" checked value="1">
-                            <label class="form-check-label fw-medium text-white" for="imprimir">
-                                <i class="fas fa-print me-1"></i> Imprimir Extrato na Recepção
-                            </label>
-                        </div>
+
 
                         <!-- Botão Pré-via e Enviar -->
                         <button type="button" id="btn_previa" class="btn btn-premium-primary w-100 py-2 rounded-pill fs-6 mb-2" onclick="imprimirPrevia()">
