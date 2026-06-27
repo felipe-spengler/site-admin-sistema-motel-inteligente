@@ -384,6 +384,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             padding-bottom: 60px;
         }
 
+        label, .form-label {
+            color: #94a3b8 !important;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        .text-muted {
+            color: #94a3b8 !important;
+        }
+        .text-slate-400 {
+            color: #94a3b8 !important;
+        }
+        span.fw-medium {
+            color: #f1f5f9 !important;
+        }
+        .text-cyan {
+            color: #06b6d4 !important;
+        }
+
         .premium-card {
             background: rgba(30, 41, 59, 0.7);
             backdrop-filter: blur(12px);
@@ -550,23 +568,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         <span class="fw-bold"><i class="fas fa-utensils me-1"></i> Produtos Consumidos</span>
                     </div>
                     <div class="card-body p-3">
-                        <!-- Selecionador de Produtos -->
-                        <div class="row g-2 mb-3">
-                            <div class="col-8">
-                                <select class="form-select" id="select_produto">
-                                    <option value="">-- Selecione Produto --</option>
-                                    <?php foreach ($catalogoProdutos as $p): ?>
-                                        <option value="<?php echo $p['id']; ?>" data-nome="<?php echo htmlspecialchars($p['nome']); ?>" data-preco="<?php echo $p['preco']; ?>">
-                                            <?php echo htmlspecialchars($p['nome']) . ' (R$ ' . number_format($p['preco'], 2, ',', '.') . ')'; ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                            <div class="col-4">
-                                <button type="button" class="btn btn-premium-primary w-100" onclick="adicionarProdutoSelecionado()">
-                                    <i class="fas fa-plus"></i> Add
-                                </button>
-                            </div>
+                        <!-- Botão para abrir o Modal de Busca -->
+                        <div class="mb-3">
+                            <button type="button" class="btn btn-premium-primary w-100 py-2 rounded-pill" data-bs-toggle="modal" data-bs-target="#modalBuscaProduto" onclick="setTimeout(() => document.getElementById('input_busca_produto').focus(), 500)">
+                                <i class="fas fa-search me-2"></i> Lançar Consumo / Produto
+                            </button>
                         </div>
 
                         <!-- Lista de Itens Consumidos (Mobile First) -->
@@ -699,8 +705,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     </div>
                 </div>
             </form>
+            
+            <!-- Modal de Busca de Produtos -->
+            <div class="modal fade" id="modalBuscaProduto" tabindex="-1" aria-labelledby="modalBuscaProdutoLabel" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-sm">
+                    <div class="modal-content premium-card border-secondary text-white">
+                        <div class="modal-header border-secondary">
+                            <h6 class="modal-title fw-bold text-cyan" id="modalBuscaProdutoLabel"><i class="fas fa-search me-1"></i> Lançar Produto</h6>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body p-3">
+                            <div class="mb-3">
+                                <input type="text" id="input_busca_produto" class="form-control text-white" placeholder="Digite para buscar..." oninput="filtrarProdutosCatalogo()">
+                            </div>
+                            <div class="list-group list-group-flush" id="lista_busca_resultados" style="max-height: 250px; overflow-y: auto;">
+                                <!-- Resultados renderizados via JavaScript -->
+                            </div>
+                        </div>
+                        <div class="modal-footer border-secondary py-1">
+                            <button type="button" class="btn btn-sm btn-outline-light rounded-pill px-3" data-bs-dismiss="modal">Fechar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         <?php endif; ?>
     </div>
+
+    <!-- Bootstrap JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 
     <!-- JS Scripts e Validações -->
     <script>
@@ -710,6 +743,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         
         // Estado dinâmico do Consumo de Produtos
         let listaProdutos = <?php echo isset($produtosConsumidos) ? json_encode($produtosConsumidos) : '[]'; ?>;
+        const catalogoProdutos = <?php echo isset($catalogoProdutos) ? json_encode($catalogoProdutos) : '[]'; ?>;
 
         // Formatação Dinâmica de Horários
         function atualizarTempoDuracao() {
@@ -750,32 +784,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             atualizarTotais();
         }
 
-        // Adiciona Produto Selecionado no Select
-        function adicionarProdutoSelecionado() {
-            const select = document.getElementById('select_produto');
-            const selectedOption = select.options[select.selectedIndex];
-            
-            if (!selectedOption.value) return;
+        // Filtra e exibe produtos no modal de busca
+        function filtrarProdutosCatalogo() {
+            const query = document.getElementById('input_busca_produto').value.toLowerCase().trim();
+            const container = document.getElementById('lista_busca_resultados');
+            container.innerHTML = '';
 
-            const id = parseInt(selectedOption.value);
-            const nome = selectedOption.getAttribute('data-nome') || selectedOption.text.split(' (')[0];
-            const preco = parseFloat(selectedOption.getAttribute('data-preco'));
+            const filtrados = catalogoProdutos.filter(p => p.nome.toLowerCase().includes(query));
 
-            // Verifica se já está na lista
-            let prod = listaProdutos.find(p => p.idproduto === id);
+            if (filtrados.length === 0) {
+                container.innerHTML = '<p class="text-muted text-center py-3 mb-0">Nenhum produto encontrado.</p>';
+                return;
+            }
+
+            filtrados.forEach(p => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'list-group-item list-group-item-action bg-transparent text-white border-secondary py-2 px-1 d-flex justify-content-between align-items-center';
+                btn.onclick = () => adicionarProdutoPorId(p.id);
+                btn.innerHTML = `
+                    <div class="text-start" style="max-width: 70%;">
+                        <strong class="d-block text-white text-truncate">${p.nome}</strong>
+                        <small class="text-muted">Estoque: ${p.estoque}</small>
+                    </div>
+                    <span class="text-cyan fw-bold">R$ ${p.preco.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</span>
+                `;
+                container.appendChild(btn);
+            });
+        }
+
+        // Adiciona produto ao consumo por ID
+        function adicionarProdutoPorId(id) {
+            const p = catalogoProdutos.find(item => item.id === id);
+            if (!p) return;
+
+            let prod = listaProdutos.find(item => item.idproduto === id);
             if (prod) {
                 prod.quantidade += 1;
             } else {
                 listaProdutos.push({
                     idproduto: id,
-                    nome: nome,
+                    nome: p.nome,
                     quantidade: 1,
-                    valorvenda: preco
+                    valorvenda: p.preco
                 });
             }
 
             renderizarProdutos();
-            saveDraftProducts(); // Salva estado atualizado no banco em tempo real via AJAX
+            saveDraftProducts(); // Salva rascunho no banco via AJAX
+            
+            // Fecha o modal
+            const modalEl = document.getElementById('modalBuscaProduto');
+            const modal = bootstrap.Modal.getInstance(modalEl);
+            if (modal) {
+                modal.hide();
+            }
+            
+            // Limpa busca
+            document.getElementById('input_busca_produto').value = '';
         }
 
         // Altera Quantidade de Produto Consumido
@@ -988,6 +1054,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             atualizarTempoDuracao();
             setInterval(atualizarTempoDuracao, 30000); // 30s
             renderizarProdutos();
+
+            // Roda filtragem inicial ao abrir o modal
+            const modalEl = document.getElementById('modalBuscaProduto');
+            if (modalEl) {
+                modalEl.addEventListener('show.bs.modal', () => {
+                    document.getElementById('input_busca_produto').value = '';
+                    filtrarProdutosCatalogo();
+                });
+            }
         });
     </script>
 </body>
