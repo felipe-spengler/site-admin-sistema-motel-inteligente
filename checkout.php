@@ -53,7 +53,7 @@ $stmtLoc->close();
 
 if (!$locacao) {
     // Caso não encontre locação ativa, exibe mensagem
-    $mensagemErro = "Nenhuma locação ativa encontrada para o Quarto $quarto.";
+    $mensagemErro = "Nenhuma locação ativa encontrada para o Quarto $quarto na filial '" . htmlspecialchars($filial) . "'.";
 } else {
     $idLocacao = $locacao['idlocacao'];
     $horaInicio = $locacao['horainicio'];
@@ -372,8 +372,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
     
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
-        integrity="sha512-SNJ2I4f5H6eJk95a9y2eW4S4+3p1j6f1w5bE6bWzP+l5R6s5wz+L6Gg0F8+e68kQ8l9z6Kq6g1A0qg7sL4tQ=="
-        crossorigin="anonymous" referrerpolicy="no-referrer" />
+        referrerpolicy="no-referrer" />
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
@@ -985,6 +984,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         // Loop de Atualização do tempo e renderização inicial
         window.addEventListener('DOMContentLoaded', () => {
+            if (!horaInicioStr) return; // Guard clause para quando não houver locação ativa
             atualizarTempoDuracao();
             setInterval(atualizarTempoDuracao, 30000); // 30s
             renderizarProdutos();
