@@ -445,6 +445,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     break;
                 default: // 'ocupado', 'ocupado-pernoite'
                     opcoesContainer.appendChild(criarBotaoModal('Abrir/Fechar Portão', 'abrir', 'btn-dark'));
+                    
+                    let btnCheckout = document.createElement('a');
+                    btnCheckout.innerText = 'Encerrar Locação';
+                    btnCheckout.className = 'btn btn-lg btn-danger mt-2';
+                    btnCheckout.href = 'checkout.php?quarto=' + quartoClicado;
+                    opcoesContainer.appendChild(btnCheckout);
                     break;
             }
 
