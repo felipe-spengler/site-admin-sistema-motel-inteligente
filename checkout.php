@@ -106,7 +106,7 @@ if (!$locacao) {
 
     // 4. Busca produtos pré-vendidos no banco de dados
     $produtosConsumidos = [];
-    $stmtProd = $conexao->prepare("SELECT pv.*, p.nomeproduto, p.valorvenda FROM prevendidos pv JOIN produtos p ON pv.idproduto = p.idproduto WHERE pv.idlocacao = ?");
+    $stmtProd = $conexao->prepare("SELECT pv.*, p.descricao AS nomeproduto, p.valorproduto AS valorvenda FROM prevendidos pv JOIN produtos p ON pv.idproduto = p.idproduto WHERE pv.idlocacao = ?");
     $stmtProd->bind_param("i", $idLocacao);
     $stmtProd->execute();
     $resProd = $stmtProd->get_result();
@@ -122,7 +122,7 @@ if (!$locacao) {
 
     // 5. Busca catálogo completo de produtos ativos para a seleção
     $catalogoProdutos = [];
-    $resCat = $conexao->query("SELECT idproduto, nomeproduto, valorvenda, estoque FROM produtos ORDER BY nomeproduto ASC");
+    $resCat = $conexao->query("SELECT idproduto, descricao AS nomeproduto, valorproduto AS valorvenda, estoque FROM produtos ORDER BY descricao ASC");
     if ($resCat) {
         while ($rowCat = $resCat->fetch_assoc()) {
             $catalogoProdutos[] = [
