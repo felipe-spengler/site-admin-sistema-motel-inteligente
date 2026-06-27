@@ -160,6 +160,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 case "xanxere":
                     include 'conexaoXanxere.php';
                     break;
+                case "venus":
+                    include 'conexaoVenus.php';
+                    break;
                 default:
                     die("Filial inválida.");
             }

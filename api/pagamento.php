@@ -38,6 +38,10 @@ switch ($sistema) {
         $conexao_path = '../conexaoXanxere.php';
         $nome_banco = 'xanxere';
         break;
+    case 'venus':
+        $conexao_path = '../conexaoVenus.php';
+        $nome_banco = 'venus';
+        break;
     default:
         die('<div style="color: red; padding: 20px;">Sistema não reconhecido.</div>');
 }

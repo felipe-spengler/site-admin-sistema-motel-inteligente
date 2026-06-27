@@ -13,6 +13,9 @@ switch ($filial) {
     case "xanxere":
         require_once 'conexaoXanxere.php';
         break;
+    case "venus":
+        require_once 'conexaoVenus.php';
+        break;
     default:
         die("Filial inválida ou não informada. Ex de acesso válido: /cardapio.php?filial=xanxere");
 }

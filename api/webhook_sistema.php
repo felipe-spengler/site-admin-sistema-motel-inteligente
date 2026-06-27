@@ -66,6 +66,9 @@ switch ($nome_banco) {
     case 'xanxere':
         $conexao_path = '../conexaoXanxere.php';
         break;
+    case 'venus':
+        $conexao_path = '../conexaoVenus.php';
+        break;
     default:
         write_log("ERRO: Banco '$nome_banco' desconhecido.");
         exit;

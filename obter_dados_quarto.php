@@ -20,6 +20,9 @@ switch ($filial) {
     case "xanxere":
         include 'conexaoXanxere.php';
         break;
+    case "venus":
+        include 'conexaoVenus.php';
+        break;
     default:
         http_response_code(500);
         die("Filial inválida.");

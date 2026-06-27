@@ -50,6 +50,9 @@ if ($_SERVER["REQUEST_METHOD"] === "GET") {
         case "xanxere":
             $tabela = "comandos_xanxere";
             break;
+        case "venus":
+            $tabela = "comandos_venus";
+            break;
         default:
             error_log("Filial inválida recebida: " . $filial);
             ob_end_clean();

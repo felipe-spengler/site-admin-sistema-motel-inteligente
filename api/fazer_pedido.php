@@ -23,6 +23,9 @@ switch ($filial) {
     case "xanxere":
         include_once '../conexaoXanxere.php';
         break;
+    case "venus":
+        include_once '../conexaoVenus.php';
+        break;
 }
 
 $mysqli = conectarAoBanco();

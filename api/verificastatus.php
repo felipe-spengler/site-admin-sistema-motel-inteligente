@@ -27,6 +27,9 @@ switch ($sistema) {
     case 'xanxere':
         $conexao_path = '../conexaoXanxere.php';
         break;
+    case 'venus':
+        $conexao_path = '../conexaoVenus.php';
+        break;
     default:
         echo json_encode(['status' => 'error', 'message' => 'Sistema não reconhecido: ' . $sistema]);
         exit;

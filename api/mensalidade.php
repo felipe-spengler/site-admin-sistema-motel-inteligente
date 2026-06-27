@@ -26,6 +26,10 @@ switch ($sistema) {
         $conexao_path = '../conexaoXanxere.php';
         $nome_motel = 'Motel Xanxerê'; // NOVO: Define o nome amigável
         break;
+    case 'venus':
+        $conexao_path = '../conexaoVenus.php';
+        $nome_motel = 'Motel Venus de Acreúna';
+        break;
     default:
         // Se o sistema não for reconhecido, exibe erro e para
         // NOVO: Registra a tentativa de acesso inválida
@@ -76,6 +80,22 @@ try {
     // Define o valor base usando o PRIMEIRO pagamento.
     // Se não encontrar, usa o valor padrão (200.00, por exemplo).
     $valor_base_mensalidade = $first_payment ? (float)$first_payment['valor'] : 200.00;
+    
+    // Verifica se o módulo fiscal está ativo
+    $has_fiscal = false;
+    $sql_fiscal = "SELECT status_modulo_fiscal FROM configuracoes LIMIT 1";
+    $result_fiscal = $conn->query($sql_fiscal);
+    if ($result_fiscal && $result_fiscal->num_rows > 0) {
+        $row_fiscal = $result_fiscal->fetch_assoc();
+        if ($row_fiscal['status_modulo_fiscal'] == 1 || $row_fiscal['status_modulo_fiscal'] == 'true') {
+            $has_fiscal = true;
+        }
+        $result_fiscal->free();
+    }
+    
+    if ($has_fiscal) {
+        $valor_base_mensalidade += 100.00;
+    }
     
     // *************************************************************
     // FIM DA ALTERAÇÃO
@@ -289,9 +309,15 @@ function registrarAcessoLog(string $motel_name, string $system_param) {
             <h6 class="mt-4 mb-2 text-muted text-center">Resumo da Cobrança</h6>
             <ul class="list-group list-group-flush mb-4 border rounded">
                 <li class="list-group-item d-flex justify-content-between align-items-center">
-                    Mensalidades (<?= $meses_em_aberto ?> x R$ <?= number_format($valor_base_mensalidade, 2, ',', '.') ?>)
-                    <span class="fw-bold">R$ <?= number_format($valor_total_mensalidades, 2, ',', '.') ?></span>
+                    Mensalidade Base (<?= $meses_em_aberto ?> x R$ <?= number_format($valor_base_mensalidade - ($has_fiscal ? 100.00 : 0), 2, ',', '.') ?>)
+                    <span class="fw-bold">R$ <?= number_format($valor_total_mensalidades - ($has_fiscal ? 100.00 * $meses_em_aberto : 0), 2, ',', '.') ?></span>
                 </li>
+                <?php if ($has_fiscal): ?>
+                <li class="list-group-item d-flex justify-content-between align-items-center text-success bg-light-subtle">
+                    Adicional Módulo Fiscal (<?= $meses_em_aberto ?> x R$ 100,00)
+                    <span class="fw-bold">R$ <?= number_format(100.00 * $meses_em_aberto, 2, ',', '.') ?></span>
+                </li>
+                <?php endif; ?>
                 <li class="list-group-item d-flex justify-content-between align-items-center">
                     Total de Multas (2% de cada parcela em atraso)
                     <span class="<?= $valor_total_multa > 0 ? 'text-danger fw-bold' : '' ?>">R$ <?= number_format($valor_total_multa, 2, ',', '.') ?></span>
