@@ -136,6 +136,90 @@ if (!$locacao) {
     }
 }
 
+// 5.5 PROCESSAMENTO DE IMPRESSÃO DE PRÉ-VIA (AJAX POST)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'imprimir_previa') {
+    header('Content-Type: application/json');
+    include 'conexao_comando.php';
+    include_once 'mqtt_helper.php';
+
+    $final_valorquarto = (float)$_POST['valor_quarto'];
+    $valor_adicional_pessoa = (float)$_POST['valor_adicional_pessoa'];
+    $valor_adicional_periodo = (float)$_POST['valor_adicional_periodo'];
+    $desconto = (float)$_POST['desconto'];
+    $acrescimo = (float)$_POST['acrescimo'];
+    $justificativa = trim($_POST['justificativa']);
+    $numpessoas = (int)$_POST['numpessoas'];
+    $produtos_finais = json_decode($_POST['produtos_json'], true);
+
+    $valor_produtos = 0;
+    foreach ($produtos_finais as $prod) {
+        $valor_produtos += (int)$prod['quantidade'] * (float)$prod['valorvenda'];
+    }
+
+    $conexao->begin_transaction();
+    try {
+        // 1. Atualiza dados principais na registralocado (para que o Java leia atualizado)
+        $stmtUp = $conexao->prepare("UPDATE registralocado SET numpessoas = ?, valorquarto = ?, valorconsumo = ? WHERE idlocacao = ?");
+        $stmtUp->bind_param("iddi", $numpessoas, $final_valorquarto, $valor_produtos, $idLocacao);
+        $stmtUp->execute();
+        $stmtUp->close();
+
+        // 2. Limpa e reinsere os produtos em prevendidos (para garantir que a pré-via esteja sincronizada com o que está na tela)
+        $stmtClearPrev = $conexao->prepare("DELETE FROM prevendidos WHERE idlocacao = ?");
+        $stmtClearPrev->bind_param("i", $idLocacao);
+        $stmtClearPrev->execute();
+        $stmtClearPrev->close();
+
+        $stmtInsert = $conexao->prepare("INSERT INTO prevendidos (idlocacao, idproduto, quantidade) VALUES (?, ?, ?)");
+        foreach ($produtos_finais as $p) {
+            $pid = (int)$p['idproduto'];
+            $pqty = (int)$p['quantidade'];
+            $stmtInsert->bind_param("iii", $idLocacao, $pid, $pqty);
+            $stmtInsert->execute();
+        }
+        $stmtInsert->close();
+
+        // 3. Gerencia justificativas de desconto/acréscimo temporárias
+        $stmtDelJust = $conexao->prepare("DELETE FROM justificativa WHERE idlocacao = ?");
+        $stmtDelJust->bind_param("i", $idLocacao);
+        $stmtDelJust->execute();
+        $stmtDelJust->close();
+
+        if ($desconto > 0) {
+            $stmtJust = $conexao->prepare("INSERT INTO justificativa (idlocacao, valor, tipo, justificativa) VALUES (?, ?, 'desconto', ?)");
+            $stmtJust->bind_param("ids", $idLocacao, $desconto, $justificativa);
+            $stmtJust->execute();
+            $stmtJust->close();
+        }
+        if ($acrescimo > 0) {
+            $stmtJust = $conexao->prepare("INSERT INTO justificativa (idlocacao, valor, tipo, justificativa) VALUES (?, ?, 'acrescimo', ?)");
+            $stmtJust->bind_param("ids", $idLocacao, $acrescimo, $justificativa);
+            $stmtJust->execute();
+            $stmtJust->close();
+        }
+
+        // 4. Grava o comando de impressão remota na fila de comandos do banco
+        $comandoStr = "imprimir_previa $idLocacao";
+        $tabelaComando = "comandos_$filial";
+        
+        $pdo = conectarPDOComando();
+        $stmtComando = $pdo->prepare("INSERT INTO $tabelaComando (comando) VALUES (:cmd)");
+        $stmtComando->execute(['cmd' => $comandoStr]);
+
+        // 5. Dispara a notificação via MQTT
+        $topico = "motel/$filial/comando";
+        enviarMensagemMQTT($topico, $comandoStr);
+
+        $conexao->commit();
+        echo json_encode(['success' => true]);
+        exit();
+    } catch (Exception $e) {
+        $conexao->rollback();
+        echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        exit();
+    }
+}
+
 // 6. PROCESSAMENTO DO FORMULÁRIO DE ENCERRAMENTO (POST)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'encerrar') {
     // Inclusão da conexão dedicada PDO e do helper de MQTT
@@ -692,7 +776,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             </label>
                         </div>
 
-                        <!-- Botão Enviar -->
+                        <!-- Botão Pré-via e Enviar -->
+                        <button type="button" id="btn_previa" class="btn btn-premium-primary w-100 py-2 rounded-pill fs-6 mb-2" onclick="imprimirPrevia()">
+                            <i class="fas fa-print me-1"></i> Imprimir Pré-via (Sem Fechar)
+                        </button>
+                        
                         <button type="submit" id="btn_submit" class="btn btn-premium-success w-100 py-3 rounded-pill fs-5" disabled>
                             <i class="fas fa-check-circle me-1"></i> Confirmar Encerramento
                         </button>
@@ -1046,6 +1134,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     }
                 }
             }
+        }
+
+        // Envia comando para imprimir pré-via de consumo
+        function imprimirPrevia() {
+            const desconto = parseFloat(document.getElementById('desconto').value) || 0;
+            const acrescimo = parseFloat(document.getElementById('acrescimo').value) || 0;
+            const justificativa = document.getElementById('justificativa').value.trim();
+            
+            if ((desconto > 0 || acrescimo > 0) && !justificativa) {
+                alert("Por favor, preencha a justificativa do desconto/acréscimo antes de imprimir a pré-via.");
+                document.getElementById('justificativa').focus();
+                return;
+            }
+
+            const btnPrevia = document.getElementById('btn_previa');
+            btnPrevia.disabled = true;
+            btnPrevia.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Enviando para a Impressora...';
+
+            const formData = new FormData();
+            formData.append('action', 'imprimir_previa');
+            formData.append('valor_quarto', document.getElementById('valor_quarto').value);
+            formData.append('valor_adicional_pessoa', document.getElementById('valor_adicional_pessoa').value);
+            formData.append('valor_adicional_periodo', document.getElementById('valor_adicional_periodo').value);
+            formData.append('desconto', document.getElementById('desconto').value);
+            formData.append('acrescimo', document.getElementById('acrescimo').value);
+            formData.append('justificativa', document.getElementById('justificativa').value);
+            formData.append('numpessoas', document.getElementById('numpessoas').value);
+            formData.append('produtos_json', JSON.stringify(listaProdutos));
+
+            fetch("checkout.php?quarto=<?php echo $quarto; ?>", {
+                method: "POST",
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                btnPrevia.disabled = false;
+                btnPrevia.innerHTML = '<i class="fas fa-print me-1"></i> Imprimir Pré-via (Sem Fechar)';
+                if (data.success) {
+                    alert("Pré-via de consumo enviada para a impressora física com sucesso!");
+                } else {
+                    alert("Erro ao enviar pré-via: " + data.error);
+                }
+            })
+            .catch(err => {
+                btnPrevia.disabled = false;
+                btnPrevia.innerHTML = '<i class="fas fa-print me-1"></i> Imprimir Pré-via (Sem Fechar)';
+                alert("Erro na conexão ao enviar pré-via.");
+            });
         }
 
         // Loop de Atualização do tempo e renderização inicial
