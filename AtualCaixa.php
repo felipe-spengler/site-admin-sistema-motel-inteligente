@@ -127,6 +127,17 @@ $paginaAtual = basename($_SERVER['PHP_SELF']);
 // verificarCargoUsuario(['admin', 'gerente']); 
 
 $idCaixa = obterIdCaixaAberto($conexao);
+$operadorAbertura = 'N/A';
+if ($idCaixa) {
+    $stmtOp = $conexao->prepare("SELECT usuarioabre FROM caixa WHERE id = ?");
+    $stmtOp->bind_param("i", $idCaixa);
+    $stmtOp->execute();
+    $resOp = $stmtOp->get_result();
+    if ($resOp && $rowOp = $resOp->fetch_assoc()) {
+        $operadorAbertura = $rowOp['usuarioabre'];
+    }
+    $stmtOp->close();
+}
 $valQ = 0;
 $valC = 0;
 $numVendido = 0;
@@ -178,7 +189,13 @@ $valorVendido = 0;
 <body class="bg-light">
 
 <div class="container mt-4 mb-5">
-    <h3 class="text-center mb-4 text-primary border-bottom pb-2">Dados do Caixa</h3>
+    <h3 class="text-center mb-1 text-primary">Dados do Caixa</h3>
+    <p class="text-center text-muted small mb-4 border-bottom pb-2">
+        <i class="bi bi-person-fill"></i> Operador atual: <strong><?php echo htmlspecialchars($operadorAbertura); ?></strong>
+        <?php if ($idCaixa): ?>
+            | <i class="bi bi-hash"></i> Caixa ID: <strong><?php echo $idCaixa; ?></strong>
+        <?php endif; ?>
+    </p>
 
     <div class="nav-pills-container mb-3">
         <ul class="nav nav-pills nav-justified" id="myTab" role="tablist">

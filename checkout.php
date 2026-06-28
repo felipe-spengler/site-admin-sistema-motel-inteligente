@@ -616,9 +616,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         
         body {
             font-family: 'Outfit', sans-serif;
-            background-color: #0f172a;
+            background: radial-gradient(circle at top right, #1e1b4b, #0f172a);
             color: #f8fafc;
             padding-bottom: 60px;
+            min-height: 100vh;
+        }
+
+        .container-fluid {
+            max-width: 1400px;
+            margin: 0 auto;
         }
 
         label, .form-label {
@@ -769,7 +775,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 <input type="hidden" name="action" value="encerrar">
                 <input type="hidden" name="produtos_json" id="produtos_json" value="[]">
 
-                <!-- CARD 1: INFORMAÇÕES GERAIS E TEMPO -->
+                <div class="row g-3">
+                    <!-- Coluna da Esquerda (Informações, Consumo e Tarifas) -->
+                    <div class="col-12 col-lg-7 col-xl-8">
+
+                        <!-- CARD 1: INFORMAÇÕES GERAIS E TEMPO -->
                 <div class="card premium-card mb-3">
                     <div class="premium-header text-white">
                         <div class="d-flex justify-content-between align-items-center">
@@ -859,7 +869,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     </div>
                 </div>
 
-                <!-- CARD 4: PAGAMENTOS -->
+                    </div> <!-- Fim col-lg-7 -->
+
+                    <!-- Coluna da Direita (Pagamentos e Fechamento) -->
+                    <div class="col-12 col-lg-5 col-xl-4">
+
+                        <!-- CARD 4: PAGAMENTOS -->
                 <div class="card premium-card mb-3">
                     <div class="premium-header text-white py-2">
                         <span class="fw-bold"><i class="fas fa-wallet me-1"></i> Formas de Pagamento</span>
@@ -939,6 +954,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         </div>
                     </div>
                 </div>
+                    </div> <!-- Fim col-lg-5 -->
+                </div> <!-- Fim row -->
             </form>
             
             <!-- Modal de Busca de Produtos -->

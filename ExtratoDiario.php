@@ -69,6 +69,8 @@ function calcularValorELocacoes($conexao, $idCaixas) {
                 'valor_fechamento' => (float)$valorFechamento, // Garantir que é um float
                 'total_locacoes' => (int)$totalLocacoes, // Garantir que é um inteiro
                 'data' => $dataAbre,
+                'usuario_abre' => $rowValor['usuarioabre'] ?? '',
+                'usuario_fecha' => $rowValor['usuariofecha'] ?? ''
             );
         }
     }
@@ -306,12 +308,18 @@ if (isset($conexao) && $conexao !== null) {
                     <div class="card shadow-sm month-content h-100">
                         <div class="card-body d-flex flex-column">
                             <h5 class="card-title text-primary text-center"><?php echo $res['data']; ?></h5>
-                            <p class="card-text text-center fw-bold">
+                            <p class="card-text text-center fw-bold mb-1">
                                 <span class="text-muted">R$:</span>
                                 <?php echo number_format($res['valor_fechamento'], 2, ',', '.'); ?> 
                                 | 
                                 <span class="text-muted">Locações:</span>
                                 <?php echo $res['total_locacoes']; ?>
+                            </p>
+                            <p class="card-text text-center small text-muted mb-3" style="font-size: 0.8rem;">
+                                Abre: <strong><?php echo htmlspecialchars($res['usuario_abre'] ?: 'N/A'); ?></strong>
+                                <?php if (!empty($res['usuario_fecha']) && $res['usuario_fecha'] !== $res['usuario_abre']): ?>
+                                    | Fecha: <strong><?php echo htmlspecialchars($res['usuario_fecha']); ?></strong>
+                                <?php endif; ?>
                             </p>
                             
                             <button onclick="exibirLocacoesNoModal(<?php echo $res['id_caixa']; ?>, '<?php echo $res['data']; ?>')" class="btn btn-outline-primary btn-sm w-100 mt-auto">
