@@ -307,17 +307,17 @@ if (isset($conexao) && $conexao !== null) {
 
             <?php foreach ($resultado as $res): ?>
                 <div class="col-12 col-sm-6 col-md-4 col-lg-3 mb-4">
-                    <div class="card shadow-sm month-content h-100">
+                    <div class="card shadow-sm month-content h-100" onclick="exibirLocacoesNoModal(<?php echo $res['id_caixa']; ?>, '<?php echo $res['data']; ?>')" style="cursor: pointer; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-3px)'; this.style.boxShadow='0 8px 16px rgba(0,0,0,0.1)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='';" title="Clique para ver os detalhes deste caixa">
                         <div class="card-body d-flex flex-column">
                             <h5 class="card-title text-primary text-center"><?php echo $res['data']; ?></h5>
-                            <p class="card-text text-center fw-bold mb-1">
+                            <p class="card-text text-center fw-bold mb-2">
                                 <span class="text-muted">R$:</span>
                                 <?php echo number_format($res['valor_fechamento'], 2, ',', '.'); ?> 
                                 | 
                                 <span class="text-muted">Locações:</span>
                                 <?php echo $res['total_locacoes']; ?>
                             </p>
-                            <div class="text-start small text-muted mb-3" style="font-size: 0.82rem; line-height: 1.4;">
+                            <div class="text-start small text-muted mb-0" style="font-size: 0.82rem; line-height: 1.4;">
                                 <div class="d-flex justify-content-between border-bottom pb-1 mb-1 border-light-subtle">
                                     <span>Abertura:</span>
                                     <span class="fw-medium text-dark"><?php echo date("H:i", strtotime($res['hora_abre'])); ?> <span class="text-secondary">(<?php echo htmlspecialchars($res['usuario_abre'] ?: 'N/A'); ?>)</span></span>
@@ -334,13 +334,7 @@ if (isset($conexao) && $conexao !== null) {
                                     </span>
                                 </div>
                             </div>
-                            
-                            <div class="text-center mt-auto">
-                                <button onclick="exibirLocacoesNoModal(<?php echo $res['id_caixa']; ?>, '<?php echo $res['data']; ?>')" class="btn btn-outline-primary btn-sm px-4 rounded-pill">
-                                    Ver Locações
-                                </button>
-                            </div>
-                            </div>
+                        </div>
                     </div>
                 </div>
             <?php endforeach; ?>
