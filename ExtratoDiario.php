@@ -69,6 +69,8 @@ function calcularValorELocacoes($conexao, $idCaixas) {
                 'valor_fechamento' => (float)$valorFechamento, // Garantir que é um float
                 'total_locacoes' => (int)$totalLocacoes, // Garantir que é um inteiro
                 'data' => $dataAbre,
+                'hora_abre' => $rowValor['horaabre'],
+                'hora_fecha' => $rowValor['horafecha'],
                 'usuario_abre' => $rowValor['usuarioabre'] ?? '',
                 'usuario_fecha' => $rowValor['usuariofecha'] ?? ''
             );
@@ -315,16 +317,29 @@ if (isset($conexao) && $conexao !== null) {
                                 <span class="text-muted">Locações:</span>
                                 <?php echo $res['total_locacoes']; ?>
                             </p>
-                            <p class="card-text text-center small text-muted mb-3" style="font-size: 0.8rem;">
-                                Abre: <strong><?php echo htmlspecialchars($res['usuario_abre'] ?: 'N/A'); ?></strong>
-                                <?php if (!empty($res['usuario_fecha']) && $res['usuario_fecha'] !== $res['usuario_abre']): ?>
-                                    | Fecha: <strong><?php echo htmlspecialchars($res['usuario_fecha']); ?></strong>
-                                <?php endif; ?>
-                            </p>
+                            <div class="text-start small text-muted mb-3" style="font-size: 0.82rem; line-height: 1.4;">
+                                <div class="d-flex justify-content-between border-bottom pb-1 mb-1 border-light-subtle">
+                                    <span>Abertura:</span>
+                                    <span class="fw-medium text-dark"><?php echo date("H:i", strtotime($res['hora_abre'])); ?> <span class="text-secondary">(<?php echo htmlspecialchars($res['usuario_abre'] ?: 'N/A'); ?>)</span></span>
+                                </div>
+                                <div class="d-flex justify-content-between">
+                                    <span>Fechamento:</span>
+                                    <span class="fw-medium text-dark">
+                                        <?php if (!empty($res['hora_fecha'])): ?>
+                                            <?php echo date("H:i", strtotime($res['hora_fecha'])); ?> 
+                                            <span class="text-secondary">(<?php echo htmlspecialchars($res['usuario_fecha'] ?: 'N/A'); ?>)</span>
+                                        <?php else: ?>
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill" style="font-size: 0.7rem; padding: 2px 6px;">Aberto</span>
+                                        <?php endif; ?>
+                                    </span>
+                                </div>
+                            </div>
                             
-                            <button onclick="exibirLocacoesNoModal(<?php echo $res['id_caixa']; ?>, '<?php echo $res['data']; ?>')" class="btn btn-outline-primary btn-sm w-100 mt-auto">
-                                Ver Locações
-                            </button>
+                            <div class="text-center mt-auto">
+                                <button onclick="exibirLocacoesNoModal(<?php echo $res['id_caixa']; ?>, '<?php echo $res['data']; ?>')" class="btn btn-outline-primary btn-sm px-4 rounded-pill">
+                                    Ver Locações
+                                </button>
+                            </div>
                             </div>
                     </div>
                 </div>
