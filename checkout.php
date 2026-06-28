@@ -60,38 +60,11 @@ if (!$locacao) {
     $numPessoas = $locacao['numpessoas'];
     $periodoLocado = $locacao['periodo_locado'];
 
-    // 3. Busca valor base do quarto conforme período
+    // 3. Calcula os valores do quarto de forma automática idêntica ao sistema Java
     $valorQuarto = 0;
-    if (!empty($periodoLocado)) {
-        $stmtRate = $conexao->prepare("SELECT valor FROM periodos_quarto WHERE numeroquarto = ? AND descricao = ?");
-        $stmtRate->bind_param("is", $quarto, $periodoLocado);
-        $stmtRate->execute();
-        $resRate = $stmtRate->get_result();
-        if ($resRate && $rowRate = $resRate->fetch_assoc()) {
-            $valorQuarto = $rowRate['valor'];
-        }
-        $stmtRate->close();
-    }
-    if ($valorQuarto == 0) {
-        $stmtRate = $conexao->prepare("SELECT valor FROM periodos_quarto WHERE numeroquarto = ? AND is_pernoite = 0 ORDER BY valor ASC LIMIT 1");
-        $stmtRate->bind_param("i", $quarto);
-        $stmtRate->execute();
-        $resRate = $stmtRate->get_result();
-        if ($resRate && $rowRate = $resRate->fetch_assoc()) {
-            $valorQuarto = $rowRate['valor'];
-        }
-        $stmtRate->close();
-    }
-    if ($valorQuarto == 0) {
-        $stmtRate = $conexao->prepare("SELECT valorquarto FROM quartos WHERE numeroquarto = ?");
-        $stmtRate->bind_param("i", $quarto);
-        $stmtRate->execute();
-        $resRate = $stmtRate->get_result();
-        if ($resRate && $rowRate = $resRate->fetch_assoc()) {
-            $valorQuarto = $rowRate['valorquarto'];
-        }
-        $stmtRate->close();
-    }
+    $valorAdicionalPeriodo = 0;
+    $valorAdicionalPessoa = 0;
+    $periodoFinalStr = "Periodo Padrão";
 
     // Busca taxa de adicional por pessoa
     $addPessoaTaxa = 0;
@@ -100,9 +73,145 @@ if (!$locacao) {
     $stmtAdd->execute();
     $resAdd = $stmtAdd->get_result();
     if ($resAdd && $rowAdd = $resAdd->fetch_assoc()) {
-        $addPessoaTaxa = $rowAdd['addPessoa'];
+        $addPessoaTaxa = (float)$rowAdd['addPessoa'];
     }
     $stmtAdd->close();
+
+    // Adicional por Pessoa
+    $adPessoaTaxaCalc = $addPessoaTaxa;
+    if ($adPessoaTaxaCalc == 0) {
+        $adPessoaTaxaCalc = 1;
+    }
+    $adicionalPessoas = ($numPessoas - 2) * $adPessoaTaxaCalc;
+    $valorAdicionalPessoa = ($adicionalPessoas <= 0) ? 0 : $adicionalPessoas;
+
+    // Busca taxa de adicional por hora (adicional em status)
+    $valorAdicionalHora = 0;
+    $stmtAdicHora = $conexao->prepare("SELECT adicional, atualquarto FROM status WHERE numeroquarto = ?");
+    $stmtAdicHora->bind_param("i", $quarto);
+    $stmtAdicHora->execute();
+    $resAdicHora = $stmtAdicHora->get_result();
+    $statusQuarto = "";
+    if ($resAdicHora && $rowAdicHora = $resAdicHora->fetch_assoc()) {
+        $valorAdicionalHora = (float)$rowAdicHora['adicional'];
+        $statusQuarto = $rowAdicHora['atualquarto'];
+    }
+    $stmtAdicHora->close();
+
+    // Busca todos os períodos cadastrados
+    $periodos = [];
+    $stmtP = $conexao->prepare("SELECT * FROM periodos_quarto WHERE numeroquarto = ? ORDER BY ordem");
+    $stmtP->bind_param("i", $quarto);
+    $stmtP->execute();
+    $resP = $stmtP->get_result();
+    while ($rowP = $resP->fetch_assoc()) {
+        $periodos[] = [
+            'descricao' => $rowP['descricao'],
+            'tempo_minutos' => (int)$rowP['tempo_minutos'],
+            'valor' => (float)$rowP['valor'],
+            'is_pernoite' => (int)$rowP['is_pernoite']
+        ];
+    }
+    $stmtP->close();
+
+    // Diferença de tempo
+    $dateInicio = new DateTime($horaInicio);
+    $dateAgora = new DateTime();
+    $diffSecs = $dateAgora->getTimestamp() - $dateInicio->getTimestamp();
+    $totalMinutosPassados = (int)floor($diffSecs / 60);
+
+    $periodoEncontrado = null;
+
+    // 1. Tenta localizar pelo período gravado na locação (Totem)
+    if (!empty($periodoLocado)) {
+        foreach ($periodos as $p) {
+            if (strcasecmp($p['descricao'], $periodoLocado) === 0) {
+                $statusEhPernoite = (strpos($statusQuarto, 'pernoite') !== false);
+                if ($statusEhPernoite != $p['is_pernoite']) {
+                    continue;
+                }
+                $periodoEncontrado = $p;
+                break;
+            }
+        }
+    }
+
+    // 2. Lógica de Upgrade/Recalculo se não tiver ou se o totem não bater
+    if (!$periodoEncontrado) {
+        $isPern = (strpos($statusQuarto, 'pernoite') !== false);
+        if ($isPern) {
+            foreach ($periodos as $p) {
+                if ($p['is_pernoite']) {
+                    $periodoEncontrado = $p;
+                    break;
+                }
+            }
+        } else {
+            foreach ($periodos as $p) {
+                if (!$p['is_pernoite']) {
+                    if ($totalMinutosPassados <= $p['tempo_minutos'] + 10) {
+                        $periodoEncontrado = $p;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // Se passou do maior período normal
+    if (!$periodoEncontrado && !empty($periodos)) {
+        for ($i = count($periodos) - 1; $i >= 0; $i--) {
+            if (!$periodos[$i]['is_pernoite']) {
+                $periodoEncontrado = $periodos[$i];
+                break;
+            }
+        }
+    }
+
+    // Se ainda nulo
+    if (!$periodoEncontrado && !empty($periodos)) {
+        $periodoEncontrado = $periodos[0];
+    }
+
+    if ($periodoEncontrado) {
+        $valorQuarto = $periodoEncontrado['valor'];
+        $periodoFinalStr = $periodoEncontrado['descricao'];
+        
+        if ($totalMinutosPassados > $periodoEncontrado['tempo_minutos'] + 10) {
+            $sobraMinutos = $totalMinutosPassados - $periodoEncontrado['tempo_minutos'];
+            $add = (int)ceil($sobraMinutos / 60.0);
+            $valorAdicionalPeriodo = $add * $valorAdicionalHora;
+        }
+    }
+
+    // Dispara comando remoto para o Java abrir a tela de encerramento localmente
+    // E grava a linha de ping inicial para evitar falso positivo do timer
+    include_once 'conexao_comando.php';
+    include_once 'mqtt_helper.php';
+    $pdo = conectarAoBancoComandosPDO();
+    if ($pdo) {
+        // Cria tabela de pings na inicialização se não existir (garantia)
+        $pdo->exec("CREATE TABLE IF NOT EXISTS checkout_session_ping (numeroquarto INT PRIMARY KEY, ultima_atividade TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)");
+        
+        // Insere o ping inicial
+        $stmtPinger = $pdo->prepare("INSERT INTO checkout_session_ping (numeroquarto, ultima_atividade) VALUES (:quarto, NOW()) ON DUPLICATE KEY UPDATE ultima_atividade = NOW()");
+        $stmtPinger->execute([':quarto' => $quarto]);
+
+        // Envia o comando abrir_checkout
+        $tabela_comando = "comandos_" . strtolower($filial);
+        $comandoAbrir = "abrir_checkout $quarto";
+
+        $stmtCmd = $pdo->prepare("INSERT INTO {$tabela_comando} (id_unidade, comando, executado, criado_em) VALUES (0, :comando, 0, NOW())");
+        $stmtCmd->execute([':comando' => $comandoAbrir]);
+        $lastId = $pdo->lastInsertId();
+
+        $mqttPayload = json_encode([
+            "id" => (int)$lastId,
+            "comando" => $comandoAbrir
+        ]);
+
+        publicarComandoMqtt(strtolower($filial), $mqttPayload);
+    }
 
     // 4. Busca produtos pré-vendidos no banco de dados
     $produtosConsumidos = [];
@@ -200,15 +309,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         // 4. Grava o comando de impressão remota na fila de comandos do banco
         $comandoStr = "imprimir_previa $idLocacao";
-        $tabelaComando = "comandos_$filial";
-        
-        $pdo = conectarPDOComando();
-        $stmtComando = $pdo->prepare("INSERT INTO $tabelaComando (comando) VALUES (:cmd)");
-        $stmtComando->execute(['cmd' => $comandoStr]);
+        $tabela_comando = "comandos_" . strtolower($filial);
 
-        // 5. Dispara a notificação via MQTT
-        $topico = "motel/$filial/comando";
-        enviarMensagemMQTT($topico, $comandoStr);
+        $pdoCmd = conectarAoBancoComandosPDO();
+        if ($pdoCmd) {
+            $stmtCmd = $pdoCmd->prepare("INSERT INTO {$tabela_comando} (id_unidade, comando, executado, criado_em) VALUES (0, :comando, 0, NOW())");
+            $stmtCmd->execute([':comando' => $comandoStr]);
+            $lastId = $pdoCmd->lastInsertId();
+
+            $mqttPayload = json_encode([
+                "id" => (int)$lastId,
+                "comando" => $comandoStr
+            ]);
+
+            // 5. Dispara a notificação via MQTT
+            publicarComandoMqtt(strtolower($filial), $mqttPayload);
+        }
 
         $conexao->commit();
         echo json_encode(['success' => true]);
@@ -410,6 +526,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// PING DE ATIVIDADE PARA MANTER A TELA DO JAVA ABERTA
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'ping_checkout') {
+    header('Content-Type: application/json');
+    $qNum = isset($_POST['quarto']) ? (int)$_POST['quarto'] : 0;
+    if ($qNum > 0) {
+        include_once 'conexao_comando.php';
+        $pdoPing = conectarAoBancoComandosPDO();
+        if ($pdoPing) {
+            $stmtPing = $pdoPing->prepare("INSERT INTO checkout_session_ping (numeroquarto, ultima_atividade) VALUES (:quarto, NOW()) ON DUPLICATE KEY UPDATE ultima_atividade = NOW()");
+            $stmtPing->execute([':quarto' => $qNum]);
+        }
+    }
+    echo json_encode(["status" => "ok"]);
+    exit();
+}
+
 // LÓGICA DE SALVAR PRODUTOS EM TEMPO REAL NA TABELA PREVENDIDOS (CHAMADA AJAX)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_draft_products') {
     header('Content-Type: application/json');
@@ -434,6 +566,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $stmtInsert->close();
         
         $conexao->commit();
+
+        // Dispara comando remoto para atualizar os produtos no Java em tempo real
+        include_once 'conexao_comando.php';
+        include_once 'mqtt_helper.php';
+        $pdoCmd = conectarAoBancoComandosPDO();
+        if ($pdoCmd) {
+            $tabela_comando = "comandos_" . strtolower($filial);
+            $cmd_string = "atualizar_produtos " . $idLocacao;
+
+            $stmtCmd = $pdoCmd->prepare("INSERT INTO {$tabela_comando} (id_unidade, comando, executado, criado_em) VALUES (0, :comando, 0, NOW())");
+            $stmtCmd->execute([':comando' => $cmd_string]);
+            $lastId = $pdoCmd->lastInsertId();
+
+            $mqttPayload = json_encode([
+                "id" => (int)$lastId,
+                "comando" => $cmd_string
+            ]);
+
+            publicarComandoMqtt(strtolower($filial), $mqttPayload);
+        }
+
         echo json_encode(['success' => true]);
         exit();
     } catch (Exception $e) {
@@ -680,15 +833,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         <div class="row g-2">
                             <div class="col-6">
                                 <label class="form-label mb-1">Valor Quarto (R$)</label>
-                                <input type="number" step="0.01" class="form-control text-white" id="valor_quarto" name="valor_quarto" value="<?php echo $valorQuarto; ?>" oninput="atualizarTotais()">
+                                <input type="number" step="0.01" class="form-control text-white" id="valor_quarto" name="valor_quarto" value="<?php echo number_format($valorQuarto, 2, '.', ''); ?>" readonly>
                             </div>
                             <div class="col-6">
                                 <label class="form-label mb-1">Adic. Pessoas (R$)</label>
-                                <input type="number" step="0.01" class="form-control text-white" id="valor_adicional_pessoa" name="valor_adicional_pessoa" value="0.00" oninput="atualizarTotais()">
+                                <input type="number" step="0.01" class="form-control text-white" id="valor_adicional_pessoa" name="valor_adicional_pessoa" value="<?php echo number_format($valorAdicionalPessoa, 2, '.', ''); ?>" readonly>
                             </div>
                             <div class="col-6">
                                 <label class="form-label mb-1">Adic. Período (R$)</label>
-                                <input type="number" step="0.01" class="form-control text-white" id="valor_adicional_periodo" name="valor_adicional_periodo" value="0.00" oninput="atualizarTotais()">
+                                <input type="number" step="0.01" class="form-control text-white" id="valor_adicional_periodo" name="valor_adicional_periodo" value="<?php echo number_format($valorAdicionalPeriodo, 2, '.', ''); ?>" readonly>
                             </div>
                             <div class="col-6">
                                 <label class="form-label mb-1">Desconto (R$)</label>
@@ -1193,6 +1346,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     filtrarProdutosCatalogo();
                 });
             }
+
+            // Ping a cada 10s para manter tela do Java aberta
+            function enviarPingAtividade() {
+                fetch('checkout.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams({
+                        action: 'ping_checkout',
+                        quarto: <?php echo $quarto; ?>
+                    })
+                }).catch(err => console.error("Erro no ping de atividade:", err));
+            }
+            setInterval(enviarPingAtividade, 10000);
         });
     </script>
 </body>
