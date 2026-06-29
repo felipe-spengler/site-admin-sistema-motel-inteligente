@@ -1,5 +1,9 @@
 <?php
-require_once 'vendor/autoload.php';
+if (file_exists(__DIR__ . '/vendor/autoload.php')) {
+    require_once __DIR__ . '/vendor/autoload.php';
+} else if (file_exists('vendor/autoload.php')) {
+    require_once 'vendor/autoload.php';
+}
 
 use PhpMqtt\Client\MqttClient;
 use PhpMqtt\Client\ConnectionSettings;
@@ -14,6 +18,11 @@ define('MQTT_BROKER_USER', null); // Se tiver senha, coloque aqui
 define('MQTT_BROKER_PASS', null);
 
 function publicarComandoMqtt($filial, $comandoJson) {
+    if (!class_exists('PhpMqtt\Client\MqttClient')) {
+        error_log("Erro: PhpMqtt\\Client\\MqttClient não encontrado. Pulando publicação MQTT.");
+        return false;
+    }
+
     try {
         $clientId = 'MotelServer_' . uniqid();
         $mqtt = new MqttClient(MQTT_BROKER_HOST, MQTT_BROKER_PORT, $clientId);

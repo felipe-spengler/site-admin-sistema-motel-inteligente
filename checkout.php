@@ -185,32 +185,34 @@ if (!$locacao) {
     }
 
     // Dispara comando remoto para o Java abrir a tela de encerramento localmente
-    // E grava a linha de ping inicial para evitar falso positivo do timer
+    // E grava a linha de ping inicial para evitar falso positivo do timer (Apenas no GET inicial)
     include_once 'conexao_comando.php';
     include_once 'mqtt_helper.php';
-    $pdo = conectarAoBancoComandosPDO();
-    if ($pdo) {
-        // Cria tabela de pings na inicialização se não existir (garantia)
-        $pdo->exec("CREATE TABLE IF NOT EXISTS checkout_session_ping (numeroquarto INT PRIMARY KEY, ultima_atividade TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)");
-        
-        // Insere o ping inicial
-        $stmtPinger = $pdo->prepare("INSERT INTO checkout_session_ping (numeroquarto, ultima_atividade) VALUES (:quarto, NOW()) ON DUPLICATE KEY UPDATE ultima_atividade = NOW()");
-        $stmtPinger->execute([':quarto' => $quarto]);
+    if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+        $pdo = conectarAoBancoComandosPDO();
+        if ($pdo) {
+            // Cria tabela de pings na inicialização se não existir (garantia)
+            $pdo->exec("CREATE TABLE IF NOT EXISTS checkout_session_ping (numeroquarto INT PRIMARY KEY, ultima_atividade TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)");
+            
+            // Insere o ping inicial
+            $stmtPinger = $pdo->prepare("INSERT INTO checkout_session_ping (numeroquarto, ultima_atividade) VALUES (:quarto, NOW()) ON DUPLICATE KEY UPDATE ultima_atividade = NOW()");
+            $stmtPinger->execute([':quarto' => $quarto]);
 
-        // Envia o comando abrir_checkout
-        $tabela_comando = "comandos_" . strtolower($filial);
-        $comandoAbrir = "abrir_checkout $quarto";
+            // Envia o comando abrir_checkout
+            $tabela_comando = "comandos_" . strtolower($filial);
+            $comandoAbrir = "abrir_checkout $quarto";
 
-        $stmtCmd = $pdo->prepare("INSERT INTO {$tabela_comando} (id_unidade, comando, executado, criado_em) VALUES (0, :comando, 0, NOW())");
-        $stmtCmd->execute([':comando' => $comandoAbrir]);
-        $lastId = $pdo->lastInsertId();
+            $stmtCmd = $pdo->prepare("INSERT INTO {$tabela_comando} (id_unidade, comando, executado, criado_em) VALUES (0, :comando, 0, NOW())");
+            $stmtCmd->execute([':comando' => $comandoAbrir]);
+            $lastId = $pdo->lastInsertId();
 
-        $mqttPayload = json_encode([
-            "id" => (int)$lastId,
-            "comando" => $comandoAbrir
-        ]);
+            $mqttPayload = json_encode([
+                "id" => (int)$lastId,
+                "comando" => $comandoAbrir
+            ]);
 
-        publicarComandoMqtt(strtolower($filial), $mqttPayload);
+            publicarComandoMqtt(strtolower($filial), $mqttPayload);
+        }
     }
 
     // 4. Busca produtos pré-vendidos no banco de dados
