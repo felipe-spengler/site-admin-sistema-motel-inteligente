@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Testes Serial Controtec</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background-color: #1e293b;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            max-width: 500px;
+            width: 100%;
+        }
+        h1 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-align: center;
+            color: #38bdf8;
+            border-bottom: 2px solid #334155;
+            padding-bottom: 10px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #94a3b8;
+        }
+        select, input {
+            width: 100%;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #475569;
+            background-color: #0f172a;
+            color: #f8fafc;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 25px;
+        }
+        button {
+            flex: 1;
+            padding: 12px;
+            border-radius: 6px;
+            border: none;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-ligar {
+            background-color: #10b981;
+            color: white;
+        }
+        .btn-ligar:hover {
+            background-color: #059669;
+        }
+        .btn-desligar {
+            background-color: #ef4444;
+            color: white;
+        }
+        .btn-desligar:hover {
+            background-color: #dc2626;
+        }
+        #resultado {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 6px;
+            background-color: #0f172a;
+            border: 1px solid #334155;
+            min-height: 50px;
+            font-family: monospace;
+            font-size: 14px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .success {
+            color: #4ade80;
+            border-color: #166534;
+        }
+        .error {
+            color: #f87171;
+            border-color: #991b1b;
+        }
+        .info {
+            color: #38bdf8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Teste Físico Controtec</h1>
+        
+        <div class="form-group">
+            <label for="porta">Porta Serial COM:</label>
+            <select id="porta">
+                <option value="COM4">COM4 (Luzes/Energia)</option>
+                <option value="COM3">COM3 (PCA Corredor)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="suite">Suíte (Mapeamento de ID Físico):</label>
+            <select id="suite">
+                <option value="1">Suíte 101 (ID 1)</option>
+                <option value="2">Suíte 102 (ID 2)</option>
+                <option value="4">Suíte 104 (ID 4)</option>
+                <option value="5" selected>Suíte 105 (ID 5)</option>
+                <option value="8">Suíte 108 (ID 8)</option>
+                <option value="9">Suíte 109 (ID 9)</option>
+                <option value="10">Suíte 110 (ID 10)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="canal">Canal da Placa:</label>
+            <select id="canal">
+                <option value="32" selected>Canal 32 (Luzes/Garagem - LB032)</option>
+                <option value="128">Canal 128 (Sinal Corredor - PCA)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="rele">Relé de Saída:</label>
+            <input type="number" id="rele" value="1" min="1" max="8">
+        </div>
+
+        <div class="btn-group">
+            <button class="btn-ligar" onclick="enviarComando(204)">LIGAR (204)</button>
+            <button class="btn-desligar" onclick="enviarComando(0)">DESLIGAR (0)</button>
+        </div>
+
+        <div id="resultado" class="info">Aguardando comando...</div>
+    </div>
+
+    <script>
+        function enviarComando(valor) {
+            const porta = document.getElementById('porta').value;
+            const placa = document.getElementById('suite').value;
+            const canal = document.getElementById('canal').value;
+            const rele = document.getElementById('rele').value;
+            const resultadoDiv = document.getElementById('resultado');
+
+            resultadoDiv.className = 'info';
+            resultadoDiv.innerText = `Enviando comando para a placa ${placa}...`;
+
+            // Faz a chamada HTTP para a API Spring Boot do novo sistema rodando localmente
+            const url = `http://localhost:8080/api/testecontrotec?porta=${porta}&placa=${placa}&canal=${canal}&rele=${rele}&valor=${valor}`;
+
+            fetch(url)
+                .then(response => response.text().then(text => ({ status: response.status, text })))
+                .then(res => {
+                    if (res.status === 200) {
+                        resultadoDiv.className = 'success';
+                        resultadoDiv.innerText = res.text;
+                    } else {
+                        resultadoDiv.className = 'error';
+                        resultadoDiv.innerText = `Erro: ${res.text}`;
+                    }
+                })
+                .catch(err => {
+                    resultadoDiv.className = 'error';
+                    resultadoDiv.innerText = `Erro de conexão com o servidor local: ${err.message}`;
+                });
+        }
+    </script>
+</body>
+</html>
