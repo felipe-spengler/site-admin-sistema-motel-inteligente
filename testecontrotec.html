@@ -80,6 +80,15 @@
         .btn-desligar:hover {
             background-color: #dc2626;
         }
+        .btn-varredura {
+            background-color: #3b82f6;
+            color: white;
+            margin-top: 15px;
+            width: 100%;
+        }
+        .btn-varredura:hover {
+            background-color: #2563eb;
+        }
         #resultado {
             margin-top: 20px;
             padding: 15px;
@@ -147,6 +156,7 @@
             <button class="btn-ligar" onclick="enviarComando(204)">LIGAR (204)</button>
             <button class="btn-desligar" onclick="enviarComando(0)">DESLIGAR (0)</button>
         </div>
+        <button class="btn-varredura" onclick="iniciarVarredura()">VARREDURA MÚLTIPLA</button>
 
         <div id="resultado" class="info">Aguardando comando...</div>
     </div>
@@ -162,8 +172,8 @@
             resultadoDiv.className = 'info';
             resultadoDiv.innerText = `Enviando comando para a placa ${placa}...`;
 
-            // Faz a chamada HTTP para a API Spring Boot do novo sistema rodando localmente
-            const url = `http://localhost:8080/api/testecontrotec?porta=${porta}&placa=${placa}&canal=${canal}&rele=${rele}&valor=${valor}`;
+            // Faz a chamada HTTP para a API Spring Boot do novo sistema rodando localmente na porta 1521
+            const url = `http://localhost:1521/api/testecontrotec?porta=${porta}&placa=${placa}&canal=${canal}&rele=${rele}&valor=${valor}`;
 
             fetch(url)
                 .then(response => response.text().then(text => ({ status: response.status, text })))
@@ -178,8 +188,52 @@
                 })
                 .catch(err => {
                     resultadoDiv.className = 'error';
-                    resultadoDiv.innerText = `Erro de conexão com o servidor local: ${err.message}`;
+                    resultadoDiv.innerText = `Erro de conexão com o servidor local (Porta 1521): ${err.message}. Verifique se o sistema Java está rodando.`;
                 });
+        }
+
+        function iniciarVarredura() {
+            const porta = document.getElementById('porta').value;
+            const placa = document.getElementById('suite').value;
+            const canal = document.getElementById('canal').value;
+            const rele = document.getElementById('rele').value;
+            const resultadoDiv = document.getElementById('resultado');
+
+            resultadoDiv.className = 'info';
+            resultadoDiv.innerText = `=== INICIANDO VARREDURA MÚLTIPLA DE VALORES ===\n`;
+
+            const valoresDeTeste = [0, 1, 3, 48, 204, 255];
+            let index = 0;
+
+            function enviarProximo() {
+                if (index >= valoresDeTeste.length) {
+                    resultadoDiv.innerText += `\n\n=== FIM DA VARREDURA MÚLTIPLA ===`;
+                    return;
+                }
+                const valor = valoresDeTeste[index];
+                resultadoDiv.innerText += `\nEnviando valor: ${valor}...`;
+
+                const url = `http://localhost:1521/api/testecontrotec?porta=${porta}&placa=${placa}&canal=${canal}&rele=${rele}&valor=${valor}`;
+
+                fetch(url)
+                    .then(response => response.text().then(text => ({ status: response.status, text })))
+                    .then(res => {
+                        if (res.status === 200) {
+                            resultadoDiv.innerText += ` -> SUCESSO`;
+                        } else {
+                            resultadoDiv.innerText += ` -> ERRO: ${res.text}`;
+                        }
+                        index++;
+                        setTimeout(enviarProximo, 400);
+                    })
+                    .catch(err => {
+                        resultadoDiv.innerText += ` -> ERRO DE CONEXÃO (Porta 1521)`;
+                        index++;
+                        setTimeout(enviarProximo, 400);
+                    });
+            }
+
+            enviarProximo();
         }
     </script>
 </body>
