@@ -250,7 +250,7 @@ if (!$locacao) {
 // 5.5 PROCESSAMENTO DE IMPRESSÃO DE PRÉ-VIA (AJAX POST)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'imprimir_previa') {
     header('Content-Type: application/json');
-    include 'conexao_comando.php';
+    include_once 'conexao_comando.php';
     include_once 'mqtt_helper.php';
 
     $final_valorquarto = (float)$_POST['valor_quarto'];
@@ -341,7 +341,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 // 6. PROCESSAMENTO DO FORMULÁRIO DE ENCERRAMENTO (POST)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'encerrar') {
     // Inclusão da conexão dedicada PDO e do helper de MQTT
-    include 'conexao_comando.php';
+    include_once 'conexao_comando.php';
     include_once 'mqtt_helper.php';
 
     $final_valorquarto = (float)$_POST['valor_quarto'];
