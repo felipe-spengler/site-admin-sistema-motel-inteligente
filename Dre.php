@@ -234,7 +234,7 @@ function calcularDescontoAcrescimo($conexao, $arrayDeIds)
 {
     // Verifica se o array de IDs não está vazio
     if (empty($arrayDeIds)) {
-        return 0;
+        return ["descontos" => 0, "acrescimos" => 0];
     }
 
     // Converte o array de IDs para uma string para usar na cláusula IN
@@ -247,13 +247,11 @@ function calcularDescontoAcrescimo($conexao, $arrayDeIds)
         JOIN caixa c ON r.idcaixaatual = c.id
         WHERE c.id IN ($ids)"; // Ajuste para considerar o intervalo de datas
 
-
-
     $resultado = mysqli_query($conexao, $sql);
 
     if ($resultado) {
-        // Inicializa o valor total do desconto/acréscimo
-        $valorTotal = 0;
+        $descontos = 0;
+        $acrescimos = 0;
 
         // Processa os resultados e aplica o desconto/acréscimo
         while ($row = mysqli_fetch_assoc($resultado)) {
@@ -264,23 +262,21 @@ function calcularDescontoAcrescimo($conexao, $arrayDeIds)
             $tipo = $row['tipo'];
             $valor = $row['valor'];
 
-            // Se o tipo for "desconto", diminui o valor, senão, soma (acréscimo)
             if ($tipo === 'desconto') {
-                $valorTotal -= $valor;
+                $descontos += $valor;
             } elseif ($tipo === 'acrescimo') {
-                $valorTotal += $valor;
+                $acrescimos += $valor;
             }
         }
 
-        return $valorTotal;
+        return [
+            "descontos" => $descontos,
+            "acrescimos" => $acrescimos
+        ];
     } else {
         // Se houve erro na execução da consulta
-        return 0;
+        return ["descontos" => 0, "acrescimos" => 0];
     }
-
-    // Retorna 0 para evitar execução da consulta, já que é só para testar a consulta
-    return 0;
-
 }
 
 
@@ -550,10 +546,13 @@ function calcularMedias($conexao, $idCaixas)
                             <strong>Consumo Total (Suítes + Avulsas):</strong>
                             <span><?php echo "R$ " . number_format($medias["somaValorConsumo"], 2, ',', '.'); ?></span>
                         </li>
+                        <li class="list-group-item text-danger">
+                            <strong>Descontos (-):</strong>
+                            <span class="fw-bold"><?php echo "R$ " . number_format($valorAcresDesc["descontos"], 2, ',', '.'); ?></span>
+                        </li>
                         <li class="list-group-item text-success">
-                            <strong>Acrescimo/Desconto:</strong>
-                            <span
-                                class="fw-bold"><?php echo "R$ " . number_format(($valorAcresDesc), 2, ',', '.'); ?></span>
+                            <strong>Acréscimos (+):</strong>
+                            <span class="fw-bold"><?php echo "R$ " . number_format($valorAcresDesc["acrescimos"], 2, ',', '.'); ?></span>
                         </li>
                     </ul>
                 </div>
