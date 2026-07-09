@@ -213,15 +213,28 @@ function carregaProdutosVendidos($conexao, $idsCaixa)
     }
 
     $placeholders = implode(',', array_fill(0, count($idsCaixa), '?'));
-    $consultaSQL = "SELECT idproduto, SUM(quantidade) AS quantidade_total, valorunidade FROM registravendido WHERE idcaixaatual IN ($placeholders) GROUP BY idproduto, valorunidade";
+    $consultaSQL = "
+        SELECT idproduto, SUM(quantidade) AS quantidade_total, valorunidade 
+        FROM (
+            SELECT idproduto, quantidade, valorunidade 
+            FROM registravendido 
+            WHERE idcaixaatual IN ($placeholders)
+            UNION ALL
+            SELECT idproduto, quantidade, valorunidade 
+            FROM vendas_avulsas 
+            WHERE idcaixa IN ($placeholders) AND tipo != 'adiantamento'
+        ) AS combinado 
+        GROUP BY idproduto, valorunidade
+    ";
 
     $statement = null;
     try {
         $statement = $conexao->prepare($consultaSQL);
 
-        // Faz o bind dos IDs de caixa como parâmetros da consulta preparada
-        $tipos = str_repeat("i", count($idsCaixa));
-        $statement->bind_param($tipos, ...$idsCaixa);
+        // Faz o bind dos IDs de caixa como parâmetros da consulta preparada (duas vezes devido ao UNION)
+        $tipos = str_repeat("i", count($idsCaixa) * 2);
+        $paramsCombined = array_merge($idsCaixa, $idsCaixa);
+        $statement->bind_param($tipos, ...$paramsCombined);
 
         $statement->execute();
         $resultado = $statement->get_result();

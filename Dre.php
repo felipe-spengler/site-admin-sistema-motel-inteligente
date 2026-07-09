@@ -393,6 +393,8 @@ function calcularMedias($conexao, $idCaixas)
             "somaCartao" => ($row['somaCartao'] ?? 0) + $somaAvulsasCartao,
             "somaPix" => ($row['somaPix'] ?? 0) + $somaAvulsasPix,
             "somaValorConsumo" => ($row['somaValorConsumo'] ?? 0) + $somaAvulsasConsumo,
+            "somaConsumoSuites" => $row['somaValorConsumo'] ?? 0,
+            "somaAvulsas" => $somaAvulsasConsumo,
             "somaValorQuarto" => $row['somaValorQuarto'] ?? 0,
             "numRegistros" => $row['numRegistros'],
             "somaCartaoCredito" => ($row['somaCartaoCredito'] ?? 0) + $somaAvulsasCredito,
@@ -405,7 +407,7 @@ function calcularMedias($conexao, $idCaixas)
             "mediaValorConsumo" => 0, "mediaValorQuarto" => 0, "ticketMedioLocacoes" => 0,
             "somaDinheiro" => 0, "somaCartao" => 0, "somaPix" => 0,
             "somaCartaoCredito" => 0, "somaCartaoDebito" => 0,
-            "somaValorConsumo" => 0, "somaValorQuarto" => 0,
+            "somaValorConsumo" => 0, "somaConsumoSuites" => 0, "somaAvulsas" => 0, "somaValorQuarto" => 0,
             "numRegistros" => 0, "faturamentoTotal" => 0
         ];
     }
@@ -537,7 +539,15 @@ function calcularMedias($conexao, $idCaixas)
                             <span><?php echo "R$ " . number_format($medias["somaValorQuarto"], 2, ',', '.'); ?></span>
                         </li>
                         <li class="list-group-item">
-                            <strong>Valor Consumo:</strong>
+                            <strong>Consumo nas Suítes:</strong>
+                            <span><?php echo "R$ " . number_format($medias["somaConsumoSuites"], 2, ',', '.'); ?></span>
+                        </li>
+                        <li class="list-group-item">
+                            <strong>Vendas Avulsas:</strong>
+                            <span><?php echo "R$ " . number_format($medias["somaAvulsas"], 2, ',', '.'); ?></span>
+                        </li>
+                        <li class="list-group-item">
+                            <strong>Consumo Total (Suítes + Avulsas):</strong>
                             <span><?php echo "R$ " . number_format($medias["somaValorConsumo"], 2, ',', '.'); ?></span>
                         </li>
                         <li class="list-group-item text-success">
