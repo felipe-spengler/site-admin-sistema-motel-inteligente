@@ -52,15 +52,22 @@ function calcularValorELocacoes($conexao, $idCaixas) {
             $sqlLocacoes = "SELECT COUNT(*) AS total, SUM(pagodinheiro) AS somaDinheiro, SUM(pagopix) AS somaPix, SUM(pagocartao) AS somaCartao 
                             FROM registralocado WHERE idcaixaatual = $idCaixa";
             $resultLocacoes = $conexao->query($sqlLocacoes);
+            
+            // Somar vendas avulsas (exceto adiantamentos)
+            $sqlAvulsas = "SELECT COALESCE(SUM(valortotal), 0) AS somaAvulsas FROM vendas_avulsas WHERE idcaixa = $idCaixa AND tipo != 'adiantamento'";
+            $resultAvulsas = $conexao->query($sqlAvulsas);
+            $somaAvulsas = 0;
+            if ($resultAvulsas && $rowAvulsas = $resultAvulsas->fetch_assoc()) {
+                $somaAvulsas = (float)$rowAvulsas['somaAvulsas'];
+            }
     
             if ($resultLocacoes && $resultLocacoes->num_rows > 0) {
                 $rowLocacoes = $resultLocacoes->fetch_assoc();
                 $totalLocacoes = $rowLocacoes['total'];
-                if ($valorFechamento === null) {
-                    $valorFechamento = $rowLocacoes['somaDinheiro'] + $rowLocacoes['somaPix'] + $rowLocacoes['somaCartao'];
-                }
+                $valorFechamento = $rowLocacoes['somaDinheiro'] + $rowLocacoes['somaPix'] + $rowLocacoes['somaCartao'] + $somaAvulsas;
             } else {
                 $totalLocacoes = 0;
+                $valorFechamento = $somaAvulsas;
             }
     
             // Adicionar os resultados à matriz
@@ -84,6 +91,8 @@ function calcularValorELocacoes($conexao, $idCaixas) {
 function carregarLocacoes($conexao, $idCaixas) {
     $locacoes = [];
     foreach ($idCaixas as $idCaixa) {
+        $locacoes[$idCaixa] = [];
+        
         $consultaSQL = "SELECT rl.*, j.valor AS valor_justificativa, j.tipo 
                         FROM registralocado rl 
                         LEFT JOIN justificativa j ON rl.idlocacao = j.idlocacao 
@@ -107,7 +116,7 @@ function carregarLocacoes($conexao, $idCaixas) {
             $locacoes[$idCaixa][] = [
                 'horainicio' => $row['horainicio'],
                 'horafim' => $row['horafim'],
-                'numquarto' => $row['numquarto'],
+                'numquarto' => "Quarto " . $row['numquarto'],
                 'valorquarto' => $valorQuarto,
                 'valorconsumo' => $valorConsumo,
                 'desconto' => $desconto,
@@ -116,6 +125,35 @@ function carregarLocacoes($conexao, $idCaixas) {
             ];
         }
         $statement->close();
+        
+        // Carrega as vendas avulsas
+        $sqlAvulsas = "SELECT horario, descricao, quantidade, valortotal, formapagamento, tipo 
+                       FROM vendas_avulsas 
+                       WHERE idcaixa = ? ORDER BY horario";
+        $stmtAvulsa = $conexao->prepare($sqlAvulsas);
+        $stmtAvulsa->bind_param("i", $idCaixa);
+        $stmtAvulsa->execute();
+        $resAvulsas = $stmtAvulsa->get_result();
+        
+        while ($row = $resAvulsas->fetch_assoc()) {
+            $tipoStr = "";
+            if ($row['tipo'] === 'adiantamento') {
+                $tipoStr = " (Adiantamento)";
+            } else if ($row['tipo'] === 'funcionario') {
+                $tipoStr = " (Func)";
+            }
+            $locacoes[$idCaixa][] = [
+                'horainicio' => $row['horario'],
+                'horafim' => null,
+                'numquarto' => "Venda Avulsa: " . $row['descricao'] . $tipoStr,
+                'valorquarto' => 0.00,
+                'valorconsumo' => (float)$row['valortotal'],
+                'desconto' => 0.00,
+                'acrescimo' => 0.00,
+                'total' => (float)$row['valortotal']
+            ];
+        }
+        $stmtAvulsa->close();
     }
     return $locacoes;
 }

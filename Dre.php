@@ -149,26 +149,40 @@ function obterIdCaixa($conexao, $dataInicio, $dataFim)
 
         return $idCaixas;
     } else {
-        return 0;
+        return array();
     }
 }
 function obterFaturamentoMes($conexao, $dataInicio, $dataFim)
 {
-
-    $sql = "SELECT SUM(saldofecha) AS faturamentomes 
-        FROM caixa 
-        WHERE horaabre >= '$dataInicio' AND horaabre <= '$dataFim'";
-
+    // Obter todos os caixas no período
+    $sql = "SELECT id FROM caixa WHERE horaabre >= '$dataInicio' AND horaabre <= '$dataFim'";
     $result = $conexao->query($sql);
-
-    if ($result) {
+    $faturamento = 0;
+    
+    if ($result && $result->num_rows > 0) {
+        $idsArray = array();
         while ($row = $result->fetch_assoc()) {
-            return $row['faturamentomes'] ?? 0;
+            $idsArray[] = $row['id'];
         }
-
-    } else {
-        return 0;
+        $ids = implode(",", $idsArray);
+        
+        $sqlLoc = "SELECT SUM(pagodinheiro + pagopix + pagocartao) as soma FROM registralocado WHERE idcaixaatual IN ($ids)";
+        $resLoc = $conexao->query($sqlLoc);
+        $somaLoc = 0;
+        if ($resLoc && $rowLoc = $resLoc->fetch_assoc()) {
+            $somaLoc = (float)($rowLoc['soma'] ?? 0.00);
+        }
+        
+        $sqlAv = "SELECT SUM(valortotal) as soma FROM vendas_avulsas WHERE idcaixa IN ($ids) AND tipo != 'adiantamento'";
+        $resAv = $conexao->query($sqlAv);
+        $somaAv = 0;
+        if ($resAv && $rowAv = $resAv->fetch_assoc()) {
+            $somaAv = (float)($rowAv['soma'] ?? 0.00);
+        }
+        
+        $faturamento = $somaLoc + $somaAv;
     }
+    return $faturamento;
 }
 function diferencaDias($dataInicio, $dataFim)
 {
@@ -292,6 +306,45 @@ function calcularMedias($conexao, $idCaixas)
     // Converte os IDs para uma string para a cláusula IN
     $ids = implode(",", $idCaixas);
 
+    // Somar dados de vendas_avulsas para os caixas no período
+    $somaAvulsasConsumo = 0;
+    $somaAvulsasDinheiro = 0;
+    $somaAvulsasPix = 0;
+    $somaAvulsasCartao = 0;
+    $somaAvulsasCredito = 0;
+    $somaAvulsasDebito = 0;
+
+    $sqlAvulsas = "SELECT formapagamento, tipo, SUM(valortotal) AS total 
+                   FROM vendas_avulsas 
+                   WHERE idcaixa IN ($ids) 
+                   GROUP BY formapagamento, tipo";
+    $resultAvulsas = $conexao->query($sqlAvulsas);
+    if ($resultAvulsas) {
+        while ($rowAv = $resultAvulsas->fetch_assoc()) {
+            $total = (float)$rowAv['total'];
+            $pgto = $rowAv['formapagamento'];
+            $tipo = $rowAv['tipo'];
+            
+            $somaAvulsasConsumo += $total;
+            
+            if ($tipo !== 'adiantamento') {
+                if ($pgto === 'dinheiro') {
+                    $somaAvulsasDinheiro += $total;
+                } else if ($pgto === 'pix') {
+                    $somaAvulsasPix += $total;
+                } else if ($pgto === 'credito') {
+                    $somaAvulsasCartao += $total;
+                    $somaAvulsasCredito += $total;
+                } else if ($pgto === 'debito') {
+                    $somaAvulsasCartao += $total;
+                    $somaAvulsasDebito += $total;
+                } else {
+                    $somaAvulsasCartao += $total;
+                }
+            }
+        }
+    }
+
     // Consulta SQL Corrigida:
     // 1. Mantemos o JOIN com a tabela caixa e o filtro 'horafecha IS NOT NULL' conforme seu critério.
     // 2. Removemos o LEFT JOIN direto com valorcartao para evitar a duplicação de somas (SUM).
@@ -321,7 +374,6 @@ function calcularMedias($conexao, $idCaixas)
         FROM registralocado r
         JOIN caixa c ON r.idcaixaatual = c.id
         WHERE r.idcaixaatual IN ($ids)
-          AND c.horafecha IS NOT NULL
     ";
 
     // Executa a consulta
@@ -330,32 +382,21 @@ function calcularMedias($conexao, $idCaixas)
     if ($resultado) {
         $row = mysqli_fetch_assoc($resultado);
 
-        // Calcula as médias baseadas em registros únicos
-        if ($row['numRegistros'] > 0) {
-            $mediaValorConsumo = $row['somaValorConsumo'] / $row['numRegistros'];
-            $mediaValorQuarto = $row['somaValorQuarto'] / $row['numRegistros'];
-            $ticketMedioLocacoes = $row['somaLocacoes'] / $row['numRegistros'];
-        } else {
-            $mediaValorConsumo = 0;
-            $mediaValorQuarto = 0;
-            $ticketMedioLocacoes = 0;
-        }
-
-        // Faturamento total (Hospedagem + Consumo)
-        $faturamentoTotal = ($row['somaValorConsumo'] ?? 0) + ($row['somaValorQuarto'] ?? 0);
+        // Faturamento total (Hospedagem + Consumo + Vendas Avulsas)
+        $faturamentoTotal = ($row['somaValorConsumo'] ?? 0) + $somaAvulsasConsumo + ($row['somaValorQuarto'] ?? 0);
 
         return [
-            "mediaValorConsumo" => $mediaValorConsumo,
-            "mediaValorQuarto" => $mediaValorQuarto,
-            "ticketMedioLocacoes" => $ticketMedioLocacoes,
-            "somaDinheiro" => $row['somaDinheiro'] ?? 0,
-            "somaCartao" => $row['somaCartao'] ?? 0,
-            "somaPix" => $row['somaPix'] ?? 0,
-            "somaValorConsumo" => $row['somaValorConsumo'] ?? 0,
+            "mediaValorConsumo" => $row['numRegistros'] > 0 ? (($row['somaValorConsumo'] ?? 0) + $somaAvulsasConsumo) / $row['numRegistros'] : 0,
+            "mediaValorQuarto" => $row['numRegistros'] > 0 ? ($row['somaValorQuarto'] ?? 0) / $row['numRegistros'] : 0,
+            "ticketMedioLocacoes" => $row['numRegistros'] > 0 ? (($row['somaValorConsumo'] ?? 0) + $somaAvulsasConsumo + ($row['somaValorQuarto'] ?? 0)) / $row['numRegistros'] : 0,
+            "somaDinheiro" => ($row['somaDinheiro'] ?? 0) + $somaAvulsasDinheiro,
+            "somaCartao" => ($row['somaCartao'] ?? 0) + $somaAvulsasCartao,
+            "somaPix" => ($row['somaPix'] ?? 0) + $somaAvulsasPix,
+            "somaValorConsumo" => ($row['somaValorConsumo'] ?? 0) + $somaAvulsasConsumo,
             "somaValorQuarto" => $row['somaValorQuarto'] ?? 0,
             "numRegistros" => $row['numRegistros'],
-            "somaCartaoCredito" => $row['somaCartaoCredito'] ?? 0,
-            "somaCartaoDebito" => $row['somaCartaoDebito'] ?? 0,
+            "somaCartaoCredito" => ($row['somaCartaoCredito'] ?? 0) + $somaAvulsasCredito,
+            "somaCartaoDebito" => ($row['somaCartaoDebito'] ?? 0) + $somaAvulsasDebito,
             "faturamentoTotal" => $faturamentoTotal
         ];
     } else {

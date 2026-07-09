@@ -515,6 +515,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 ]);
 
                 publicarComandoMqtt(strtolower($filial), $mqttPayload);
+
+                // Se marcou imprimir, envia comando imprimir_previa logo em seguida
+                // O Java vai chamar imprimirExtratoPelaTela() que usa os dados da tela aberta
+                if ($imprimir) {
+                    $cmd_print = "imprimir_previa " . $idLocacao;
+                    $stmtPrint = $pdo->prepare("INSERT INTO {$tabela_comando} (id_unidade, comando, executado, criado_em) VALUES (0, :comando, 0, NOW())");
+                    $stmtPrint->execute([':comando' => $cmd_print]);
+                    $printId = $pdo->lastInsertId();
+                    $mqttPrint = json_encode(["id" => (int)$printId, "comando" => $cmd_print]);
+                    publicarComandoMqtt(strtolower($filial), $mqttPrint);
+                }
             }
 
             // Redireciona com sucesso
@@ -1366,7 +1377,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 });
             }
 
-            // Ping a cada 10s para manter tela do Java aberta
+            // Ping a cada 30s para manter tela do Java aberta
             function enviarPingAtividade() {
                 fetch('checkout.php', {
                     method: 'POST',
@@ -1379,7 +1390,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     })
                 }).catch(err => console.error("Erro no ping de atividade:", err));
             }
-            setInterval(enviarPingAtividade, 10000);
+            enviarPingAtividade(); // Dispara imediatamente ao abrir
+            setInterval(enviarPingAtividade, 30000);
         });
     </script>
 </body>
