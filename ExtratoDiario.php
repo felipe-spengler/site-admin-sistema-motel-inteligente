@@ -158,6 +158,59 @@ function carregarLocacoes($conexao, $idCaixas) {
     return $locacoes;
 }
 
+function carregarProdutosVendidos($conexao, $idCaixas) {
+    $produtosVendidos = [];
+    foreach ($idCaixas as $idCaixa) {
+        $produtosVendidos[$idCaixa] = [];
+        
+        // 1. Produtos vendidos nas locações (tabela registravendido)
+        $sqlLocacoes = "SELECT p.descricao AS produto, rv.quantidade, rv.valorunidade, rv.valortotal, rl.numquarto
+                        FROM registravendido rv
+                        JOIN produtos p ON rv.idproduto = p.idproduto
+                        LEFT JOIN registralocado rl ON rv.idlocacao = rl.idlocacao
+                        WHERE rv.idcaixaatual = ? 
+                        ORDER BY p.descricao";
+        $stmt = $conexao->prepare($sqlLocacoes);
+        $stmt->bind_param("i", $idCaixa);
+        $stmt->execute();
+        $resLocacoes = $stmt->get_result();
+        while ($row = $resLocacoes->fetch_assoc()) {
+            $produtosVendidos[$idCaixa][] = [
+                'descricao' => $row['produto'],
+                'quantidade' => (int)$row['quantidade'],
+                'valor_unitario' => (float)$row['valorunidade'],
+                'valor_total' => (float)$row['valortotal'],
+                'origem' => $row['numquarto'] ? "Quarto " . $row['numquarto'] : "Locação"
+            ];
+        }
+        $stmt->close();
+
+        // 2. Vendas avulsas (tabela vendas_avulsas)
+        $sqlAvulsas = "SELECT descricao, quantidade, valortotal, tipo 
+                       FROM vendas_avulsas 
+                       WHERE idcaixa = ? AND tipo != 'adiantamento'
+                       ORDER BY descricao";
+        $stmtAv = $conexao->prepare($sqlAvulsas);
+        $stmtAv->bind_param("i", $idCaixa);
+        $stmtAv->execute();
+        $resAv = $stmtAv->get_result();
+        while ($row = $resAv->fetch_assoc()) {
+            $qtd = (int)$row['quantidade'];
+            if ($qtd <= 0) $qtd = 1;
+            $produtosVendidos[$idCaixa][] = [
+                'descricao' => $row['descricao'],
+                'quantidade' => $qtd,
+                'valor_unitario' => (float)$row['valortotal'] / $qtd,
+                'valor_total' => (float)$row['valortotal'],
+                'origem' => "Venda Avulsa" . ($row['tipo'] === 'funcionario' ? " (Func)" : "")
+            ];
+        }
+        $stmtAv->close();
+    }
+    return $produtosVendidos;
+}
+
+
     
 // Verifica se foi recebido um valor por método POST
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["period"])) {
@@ -248,11 +301,12 @@ if ($conexao === null) {
     // Você pode querer exibir uma mensagem de erro mais amigável aqui
     $resultado = []; 
     $locacoes = []; 
+    $produtosVendidos = [];
 } else {
     $idCaixas = obterIdCaixa($conexao, $dataInicio, $dataFim);
     $resultado = calcularValorELocacoes($conexao, $idCaixas) ;
     $locacoes = carregarLocacoes($conexao, $idCaixas); // Carrega as locações
-
+    $produtosVendidos = carregarProdutosVendidos($conexao, $idCaixas); // Carrega os produtos vendidos
 }
 // A conexão só deve ser fechada se ela foi aberta com sucesso
 if (isset($conexao) && $conexao !== null) {
@@ -297,6 +351,7 @@ if (isset($conexao) && $conexao !== null) {
     <script>
         // Variável JS com os dados de locação (mantida)
         const locacoes = <?php echo json_encode($locacoes); ?>;
+        const produtosVendidos = <?php echo json_encode($produtosVendidos); ?>;
     </script>
     
     <div class="container">
@@ -382,12 +437,16 @@ if (isset($conexao) && $conexao !== null) {
     <div class="modal fade" id="locacoesModal" tabindex="-1" aria-labelledby="locacoesModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
             <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="locacoesModalLabel">Detalhes das Locações - <span id="modalData"></span></h5>
+                <div class="modal-header d-flex justify-content-between align-items-center">
+                    <h5 class="modal-title" id="locacoesModalLabel">Detalhes do Caixa - <span id="modalData"></span></h5>
+                    <div class="btn-group ms-auto me-3" role="group" aria-label="Visualização">
+                        <button type="button" class="btn btn-sm btn-outline-primary active" id="btnVerLocacoes" onclick="alternarVisualizacao('locacoes')">Locações e Vendas</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="btnVerProdutos" onclick="alternarVisualizacao('produtos')">Produtos Vendidos</button>
+                    </div>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body p-0">
-                    <div class="table-responsive">
+                    <div class="table-responsive" id="tabelaLocacoesContainer">
                         <table class="table table-sm table-striped table-hover mb-0">
                             <thead class="table-light sticky-top">
                                 <tr>
@@ -402,7 +461,22 @@ if (isset($conexao) && $conexao !== null) {
                                 </tr>
                             </thead>
                             <tbody id="modalLocacoesBody">
-                                </tbody>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-responsive d-none" id="tabelaProdutosContainer">
+                        <table class="table table-sm table-striped table-hover mb-0">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th>Produto</th>
+                                    <th>Quantidade</th>
+                                    <th>Vlr Unitário</th>
+                                    <th>Vlr Total</th>
+                                    <th>Origem</th>
+                                </tr>
+                            </thead>
+                            <tbody id="modalProdutosBody">
+                            </tbody>
                         </table>
                     </div>
                 </div>
@@ -452,8 +526,6 @@ if (isset($conexao) && $conexao !== null) {
             if (isNaN(dataObj)) return '';
             const dia = String(dataObj.getDate()).padStart(2, '0');
             const mes = String(dataObj.getMonth() + 1).padStart(2, '0');
-            const hora = String(dataObj.getHours()).padStart(2, '0');
-            const minuto = String(dataObj.getMinutes()).padStart(2, '0');
             return `${dia}/${mes} ${hora}:${minuto}`;
         }
         
@@ -465,14 +537,19 @@ if (isset($conexao) && $conexao !== null) {
         function exibirLocacoesNoModal(idCaixa, dataCaixa) {
             const modalTitleSpan = document.getElementById('modalData');
             const tabelaBody = document.getElementById('modalLocacoesBody');
+            const tabelaProdutosBody = document.getElementById('modalProdutosBody');
             
-            // Limpa o corpo da tabela antes de preencher
+            // Limpa o corpo das tabelas antes de preencher
             tabelaBody.innerHTML = '';
+            tabelaProdutosBody.innerHTML = '';
             
             // Atualiza o título do modal
             modalTitleSpan.textContent = dataCaixa;
 
-            // Preenche a tabela
+            // Define visualização padrão
+            alternarVisualizacao('locacoes');
+
+            // Preenche a tabela de locações
             if (locacoes[idCaixa] && locacoes[idCaixa].length > 0) {
                 locacoes[idCaixa].forEach(locacao => {
                     const row = tabelaBody.insertRow();
@@ -491,9 +568,39 @@ if (isset($conexao) && $conexao !== null) {
                 row.innerHTML = `<td colspan="8" class="text-center text-muted">Nenhuma locação encontrada para este caixa.</td>`;
             }
 
+            // Preenche a tabela de produtos vendidos
+            if (produtosVendidos[idCaixa] && produtosVendidos[idCaixa].length > 0) {
+                produtosVendidos[idCaixa].forEach(prod => {
+                    const row = tabelaProdutosBody.insertRow();
+                    row.innerHTML = `
+                        <td>${prod.descricao}</td>
+                        <td>${prod.quantidade}</td>
+                        <td>${formatarMoeda(prod.valor_unitario)}</td>
+                        <td>${formatarMoeda(prod.valor_total)}</td>
+                        <td><span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">${prod.origem}</span></td>`;
+                });
+            } else {
+                const row = tabelaProdutosBody.insertRow();
+                row.innerHTML = `<td colspan="5" class="text-center text-muted">Nenhum produto vendido neste caixa.</td>`;
+            }
+
             // Exibe o modal
             const locacoesModal = new bootstrap.Modal(document.getElementById('locacoesModal'));
             locacoesModal.show();
+        }
+
+        function alternarVisualizacao(tipo) {
+            if (tipo === 'locacoes') {
+                document.getElementById('tabelaLocacoesContainer').classList.remove('d-none');
+                document.getElementById('tabelaProdutosContainer').classList.add('d-none');
+                document.getElementById('btnVerLocacoes').classList.add('active');
+                document.getElementById('btnVerProdutos').classList.remove('active');
+            } else {
+                document.getElementById('tabelaLocacoesContainer').classList.add('d-none');
+                document.getElementById('tabelaProdutosContainer').classList.remove('d-none');
+                document.getElementById('btnVerLocacoes').classList.remove('active');
+                document.getElementById('btnVerProdutos').classList.add('active');
+            }
         }
     </script>
     
