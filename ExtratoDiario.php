@@ -526,6 +526,8 @@ if (isset($conexao) && $conexao !== null) {
             if (isNaN(dataObj)) return '';
             const dia = String(dataObj.getDate()).padStart(2, '0');
             const mes = String(dataObj.getMonth() + 1).padStart(2, '0');
+            const hora = String(dataObj.getHours()).padStart(2, '0');
+            const minuto = String(dataObj.getMinutes()).padStart(2, '0');
             return `${dia}/${mes} ${hora}:${minuto}`;
         }
         
