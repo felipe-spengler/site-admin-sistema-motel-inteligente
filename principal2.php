@@ -54,7 +54,7 @@ $conexao->close(); // Fechar a conexão
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - Motel Inteligente</title>
-    <link rel="icon" href="imagens/iconeMI.png" type="image/png" sizes="32x32">
+    <link class="favicon" rel="icon" href="imagens/iconeMI.png" type="image/png" sizes="32x32">
 
     <!-- Bootstrap 5.3.3 -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
@@ -70,9 +70,9 @@ $conexao->close(); // Fechar a conexão
 
     <style>
         :root {
-            --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-            --card-bg: rgba(30, 41, 59, 0.7);
-            --card-border: rgba(255, 255, 255, 0.08);
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --card-border: rgba(0, 0, 0, 0.08);
             
             --color-ocupado: #ef4444;
             --color-disponivel: #10b981;
@@ -85,8 +85,8 @@ $conexao->close(); // Fechar a conexão
         }
 
         body {
-            background: var(--bg-gradient);
-            color: #f8fafc;
+            background-color: var(--bg-color);
+            color: #1e293b;
             font-family: var(--font-primary);
             min-height: 100vh;
             padding-bottom: 80px; /* Space for the bottom navbar */
@@ -98,20 +98,17 @@ $conexao->close(); // Fechar a conexão
             margin: 0 auto;
         }
 
-        /* Glassmorphism Header Card */
+        /* Modern White Card style */
         .glass-card {
-            background: rgba(15, 23, 42, 0.6);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
+            background: var(--card-bg);
             border: 1px solid var(--card-border);
             border-radius: 1.25rem;
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.08);
             transition: all 0.3s ease;
         }
 
         .glass-card:hover {
-            border-color: rgba(255, 255, 255, 0.15);
-            box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.4);
+            box-shadow: 0 15px 35px -10px rgba(0, 0, 0, 0.12);
         }
 
         /* Status Cards Style */
@@ -129,6 +126,7 @@ $conexao->close(); // Fechar a conexão
             justify-content: space-between;
             height: 100%;
             z-index: 1;
+            box-shadow: 0 4px 15px -3px rgba(0,0,0,0.04);
         }
 
         .status-grid-card::before {
@@ -150,17 +148,16 @@ $conexao->close(); // Fechar a conexão
 
         .status-grid-card:hover {
             transform: translateY(-5px);
-            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3);
-            border-color: rgba(255, 255, 255, 0.2);
+            border-color: rgba(0, 0, 0, 0.15);
         }
 
-        /* Accent glow on hover */
-        .status-grid-card.ocupado:hover { box-shadow: 0 15px 30px rgba(239, 68, 68, 0.15), 0 1px 2px rgba(239, 68, 68, 0.1); }
-        .status-grid-card.disponivel:hover { box-shadow: 0 15px 30px rgba(16, 185, 129, 0.15), 0 1px 2px rgba(16, 185, 129, 0.1); }
-        .status-grid-card.reservado:hover { box-shadow: 0 15px 30px rgba(59, 130, 246, 0.15), 0 1px 2px rgba(59, 130, 246, 0.1); }
-        .status-grid-card.manutencao:hover { box-shadow: 0 15px 30px rgba(100, 116, 139, 0.15), 0 1px 2px rgba(100, 116, 139, 0.1); }
-        .status-grid-card.limpeza:hover { box-shadow: 0 15px 30px rgba(234, 179, 8, 0.15), 0 1px 2px rgba(234, 179, 8, 0.1); }
-        .status-grid-card.info:hover { box-shadow: 0 15px 30px rgba(139, 92, 246, 0.2), 0 1px 2px rgba(139, 92, 246, 0.1); }
+        /* Accent glow on hover (subtle on white theme) */
+        .status-grid-card.ocupado:hover { box-shadow: 0 10px 25px -5px rgba(239, 68, 68, 0.15); }
+        .status-grid-card.disponivel:hover { box-shadow: 0 10px 25px -5px rgba(16, 185, 129, 0.15); }
+        .status-grid-card.reservado:hover { box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.15); }
+        .status-grid-card.manutencao:hover { box-shadow: 0 10px 25px -5px rgba(100, 116, 139, 0.15); }
+        .status-grid-card.limpeza:hover { box-shadow: 0 10px 25px -5px rgba(234, 179, 8, 0.15); }
+        .status-grid-card.info:hover { box-shadow: 0 10px 25px -5px rgba(139, 92, 246, 0.15); }
 
         .icon-wrapper {
             width: 60px;
@@ -170,13 +167,13 @@ $conexao->close(); // Fechar a conexão
             align-items: center;
             justify-content: center;
             border-radius: 50%;
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(0, 0, 0, 0.03);
             transition: all 0.3s ease;
         }
 
         .status-grid-card:hover .icon-wrapper {
             transform: scale(1.1);
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(0, 0, 0, 0.06);
         }
 
         .status-number {
@@ -189,8 +186,8 @@ $conexao->close(); // Fechar a conexão
 
         .status-label {
             font-size: 0.9rem;
-            color: #94a3b8;
-            font-weight: 500;
+            color: #64748b;
+            font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
@@ -227,54 +224,19 @@ $conexao->close(); // Fechar a conexão
             position: absolute;
             z-index: 1050;
             display: none;
-            background: rgba(15, 23, 42, 0.95);
-            backdrop-filter: blur(8px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: #ffffff;
+            border: 1px solid rgba(0, 0, 0, 0.1);
             border-radius: 0.5rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
         }
         
         .menu-popup .dropdown-item {
-            color: #e2e8f0;
+            color: #1e293b;
             transition: all 0.2s;
         }
         
         .menu-popup .dropdown-item:hover {
-            background: rgba(255, 255, 255, 0.1);
-            color: #ffffff;
-        }
-
-        /* Navigation override styles for modern theme compatibility */
-        .bottom-navbar {
-            background: rgba(15, 23, 42, 0.9) !important;
-            backdrop-filter: blur(10px);
-            border-top: 1px solid rgba(255, 255, 255, 0.08);
-        }
-        
-        .bottom-navbar .nav-link {
-            color: #94a3b8 !important;
-            font-weight: 500;
-            padding: 10px 0 !important;
-            transition: all 0.2s;
-        }
-
-        .bottom-navbar .nav-link.ativo,
-        .bottom-navbar .nav-link:hover {
-            color: #3b82f6 !important;
-            text-shadow: 0 0 10px rgba(59, 130, 246, 0.4);
-        }
-
-        .bottom-navbar .dropdown-menu {
-            background: #0f172a;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .bottom-navbar .dropdown-item {
-            color: #cbd5e1;
-        }
-
-        .bottom-navbar .dropdown-item:hover {
-            background: rgba(255, 255, 255, 0.05);
-            color: #ffffff;
+            background: #f1f5f9;
         }
     </style>
 </head>
@@ -287,7 +249,7 @@ $conexao->close(); // Fechar a conexão
         <div class="d-flex align-items-center justify-content-between mb-4">
             <div class="d-flex align-items-center gap-3">
                 <img src="imagens/iconeMI.png" alt="Logo" style="width: 42px; height: 42px; object-fit: contain;">
-                <h1 class="page-title fs-3 mb-0 text-white">Motel <span class="text-primary">Inteligente</span></h1>
+                <h1 class="page-title fs-3 mb-0 text-dark">Motel <span class="text-primary">Inteligente</span></h1>
             </div>
             <div class="badge bg-primary px-3 py-2 rounded-pill font-monospace text-uppercase" style="font-size: 0.75rem;">
                 Filial: <?php echo htmlspecialchars($filial); ?>
@@ -296,17 +258,17 @@ $conexao->close(); // Fechar a conexão
 
         <!-- Glassmorphism Caixa Card -->
         <div class="card glass-card mb-5 border-0">
-            <div class="card-body p-4 text-white">
+            <div class="card-body p-4 text-dark">
 
-                <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom border-secondary-subtle" style="--bs-border-opacity: .15;">
+                <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom border-light-subtle">
                     <div class="d-flex align-items-center gap-2">
                         <i class="fa-solid fa-cash-register text-primary fs-4"></i>
-                        <h3 class="card-title mb-0 fs-4 fw-semibold" id="caixaTitulo" style="cursor: pointer; user-select: none;">
+                        <h3 class="card-title mb-0 fs-4 fw-semibold text-dark" id="caixaTitulo" style="cursor: pointer; user-select: none;">
                             Caixa Atual <i class="fa-solid fa-chevron-down fs-6 ms-1 text-muted"></i>
                         </h3>
                     </div>
 
-                    <a href="AtualCaixa.php" class="btn btn-sm btn-outline-light px-3 rounded-pill fw-semibold d-flex align-items-center gap-1">
+                    <a href="AtualCaixa.php" class="btn btn-sm btn-outline-dark px-3 rounded-pill fw-semibold d-flex align-items-center gap-1">
                         <i class="fa-solid fa-circle-info"></i> Detalhes
                     </a>
                 </div>
@@ -320,16 +282,16 @@ $conexao->close(); // Fechar a conexão
 
                 <div class="row g-4">
                     <div class="col-12 col-md-4">
-                        <div class="p-3 rounded-3" style="background: rgba(255,255,255,0.02)">
+                        <div class="p-3 rounded-3" style="background: #f1f5f9;">
                             <small class="text-secondary text-uppercase fw-semibold font-monospace" style="font-size: 0.75rem; letter-spacing: 0.5px;">Data Abertura</small>
-                            <div class="fs-5 fw-medium text-light mt-1">
+                            <div class="fs-5 fw-medium text-dark mt-1">
                                 <i class="fa-regular fa-clock text-primary me-2"></i><?php echo $idCaixa ? htmlspecialchars($idCaixa['horaabre']) : '--'; ?>
                             </div>
                         </div>
                     </div>
                     
                     <div class="col-12 col-md-4">
-                        <div class="p-3 rounded-3" style="background: rgba(255,255,255,0.02)">
+                        <div class="p-3 rounded-3" style="background: #f1f5f9;">
                             <small class="text-secondary text-uppercase fw-semibold font-monospace" style="font-size: 0.75rem; letter-spacing: 0.5px;">Total Entradas</small>
                             <div class="fs-4 fw-bold text-success mt-1">
                                 R$ <?php echo number_format($total_registralocado, 2, ',', '.'); ?>
@@ -338,7 +300,7 @@ $conexao->close(); // Fechar a conexão
                     </div>
                     
                     <div class="col-12 col-md-4">
-                        <div class="p-3 rounded-3" style="background: rgba(255,255,255,0.02)">
+                        <div class="p-3 rounded-3" style="background: #f1f5f9;">
                             <small class="text-secondary text-uppercase fw-semibold font-monospace" style="font-size: 0.75rem; letter-spacing: 0.5px;">Hospedagens</small>
                             <div class="fs-5 fw-semibold text-info mt-1">
                                 <i class="fa-solid fa-bed text-info me-2"></i><?php echo $locacoes; ?>
@@ -358,7 +320,7 @@ $conexao->close(); // Fechar a conexão
 
         <!-- Quartos Section -->
         <div class="text-center mb-4">
-            <h2 class="section-title text-white fs-3">Situação dos Quartos</h2>
+            <h2 class="section-title text-dark fs-3">Situação dos Quartos</h2>
         </div>
 
         <div class="row row-cols-2 row-cols-md-3 row-cols-lg-6 g-4">
@@ -431,12 +393,12 @@ $conexao->close(); // Fechar a conexão
             <!-- Mais info -->
             <div class="col">
                 <a href="quartos.php" class="text-decoration-none h-100 d-block">
-                    <div class="status-grid-card info text-white">
+                    <div class="status-grid-card info text-dark">
                         <div class="icon-wrapper">
-                            <i class="fa-solid fa-ellipsis text-white fs-4"></i>
+                            <i class="fa-solid fa-ellipsis text-dark fs-4"></i>
                         </div>
                         <div>
-                            <div class="status-number text-white">+</div>
+                            <div class="status-number text-dark">+</div>
                             <div class="status-label">Ver Detalhes</div>
                         </div>
                     </div>
@@ -460,21 +422,20 @@ $conexao->close(); // Fechar a conexão
             let paginaRequisicao = 'requisicao.php';
             var url = 'http://motelinteligente.com/' + paginaRequisicao + '?dados=' + acao;
 
-            // Cria e exibe um alerta de sucesso moderno
+            // Cria e exibe um alerta de sucesso moderno (versão light)
             let alertDiv = document.createElement('div');
-            alertDiv.className = 'alert alert-primary alert-dismissible fade show fixed-top mx-auto mt-3 shadow-lg border border-primary border-opacity-20';
+            alertDiv.className = 'alert alert-primary alert-dismissible fade show fixed-top mx-auto mt-3 shadow-lg border border-primary border-opacity-15';
             alertDiv.style.maxWidth = '320px';
             alertDiv.style.zIndex = '1060';
-            alertDiv.style.background = 'rgba(15, 23, 42, 0.95)';
-            alertDiv.style.color = '#fff';
-            alertDiv.style.backdropFilter = 'blur(8px)';
+            alertDiv.style.background = '#ffffff';
+            alertDiv.style.color = '#1e293b';
             alertDiv.setAttribute('role', 'alert');
             alertDiv.innerHTML = `
                 <div class="d-flex align-items-center gap-2">
                     <i class="fa-solid fa-circle-check text-success fs-5"></i>
                     <div>
                         <strong>Sucesso!</strong><br>
-                        <span style="font-size: 0.85rem; color: #94a3b8;">Ação enviada para ${paginaRequisicao}!</span>
+                        <span style="font-size: 0.85rem; color: #64748b;">Ação enviada para ${paginaRequisicao}!</span>
                     </div>
                 </div>
             `;
