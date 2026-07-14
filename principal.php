@@ -325,7 +325,7 @@ $conexao->close(); // Fechar a conexão
                         <div class="p-3 rounded-3" style="background: rgba(255, 255, 255, 0.05);">
                             <small class="text-secondary text-uppercase fw-semibold font-monospace" style="font-size: 0.75rem; letter-spacing: 0.5px;">Data Abertura</small>
                             <div class="fs-5 fw-medium text-white mt-1">
-                                <i class="fa-regular fa-clock text-primary me-2"></i><?php echo $idCaixa ? htmlspecialchars($idCaixa['horaabre']) : '--'; ?>
+                                <i class="fa-regular fa-clock text-primary me-2"></i><?php echo $idCaixa ? date('d/m/Y H:i', strtotime($idCaixa['horaabre'])) : '--'; ?>
                             </div>
                         </div>
                     </div>
