@@ -107,8 +107,19 @@ $conexao->close(); // Fechar a conexão
             transition: all 0.3s ease;
         }
 
+        .glass-card.dark-version {
+            background: #0f172a;
+            border-color: rgba(255, 255, 255, 0.05);
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.3);
+        }
+
         .glass-card:hover {
             box-shadow: 0 15px 35px -10px rgba(0, 0, 0, 0.12);
+        }
+
+        .glass-card.dark-version:hover {
+            box-shadow: 0 15px 35px -10px rgba(0, 0, 0, 0.4);
+            border-color: rgba(255, 255, 255, 0.1);
         }
 
         /* Status Cards Style */
@@ -157,7 +168,28 @@ $conexao->close(); // Fechar a conexão
         .status-grid-card.reservado:hover { box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.15); }
         .status-grid-card.manutencao:hover { box-shadow: 0 10px 25px -5px rgba(100, 116, 139, 0.15); }
         .status-grid-card.limpeza:hover { box-shadow: 0 10px 25px -5px rgba(234, 179, 8, 0.15); }
-        .status-grid-card.info:hover { box-shadow: 0 10px 25px -5px rgba(139, 92, 246, 0.15); }
+
+        /* Highlighted Info Card (Dark inverted version for contrast) */
+        .status-grid-card.info {
+            background: #0f172a;
+            border-color: #0f172a;
+            color: #ffffff !important;
+            box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.2);
+        }
+        
+        .status-grid-card.info .status-number {
+            color: #ffffff !important;
+        }
+
+        .status-grid-card.info .status-label {
+            color: #94a3b8;
+        }
+
+        .status-grid-card.info:hover {
+            background: #1e293b;
+            border-color: #1e293b;
+            box-shadow: 0 15px 30px -5px rgba(15, 23, 42, 0.35);
+        }
 
         .icon-wrapper {
             width: 60px;
@@ -171,9 +203,17 @@ $conexao->close(); // Fechar a conexão
             transition: all 0.3s ease;
         }
 
+        .status-grid-card.info .icon-wrapper {
+            background: rgba(255, 255, 255, 0.06);
+        }
+
         .status-grid-card:hover .icon-wrapper {
             transform: scale(1.1);
             background: rgba(0, 0, 0, 0.06);
+        }
+
+        .status-grid-card.info:hover .icon-wrapper {
+            background: rgba(255, 255, 255, 0.12);
         }
 
         .status-number {
@@ -256,19 +296,19 @@ $conexao->close(); // Fechar a conexão
             </div>
         </div>
 
-        <!-- Glassmorphism Caixa Card -->
-        <div class="card glass-card mb-5 border-0">
-            <div class="card-body p-4 text-dark">
+        <!-- Glassmorphism Caixa Card (Dark Version for highlight) -->
+        <div class="card glass-card dark-version mb-5 border-0">
+            <div class="card-body p-4 text-white">
 
-                <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom border-light-subtle">
+                <div class="d-flex justify-content-between align-items-center mb-4 pb-3 border-bottom border-secondary-subtle" style="--bs-border-opacity: .15;">
                     <div class="d-flex align-items-center gap-2">
                         <i class="fa-solid fa-cash-register text-primary fs-4"></i>
-                        <h3 class="card-title mb-0 fs-4 fw-semibold text-dark" id="caixaTitulo" style="cursor: pointer; user-select: none;">
+                        <h3 class="card-title mb-0 fs-4 fw-semibold text-white" id="caixaTitulo" style="cursor: pointer; user-select: none;">
                             Caixa Atual <i class="fa-solid fa-chevron-down fs-6 ms-1 text-muted"></i>
                         </h3>
                     </div>
 
-                    <a href="AtualCaixa.php" class="btn btn-sm btn-outline-dark px-3 rounded-pill fw-semibold d-flex align-items-center gap-1">
+                    <a href="AtualCaixa.php" class="btn btn-sm btn-outline-light px-3 rounded-pill fw-semibold d-flex align-items-center gap-1">
                         <i class="fa-solid fa-circle-info"></i> Detalhes
                     </a>
                 </div>
@@ -282,16 +322,16 @@ $conexao->close(); // Fechar a conexão
 
                 <div class="row g-4">
                     <div class="col-12 col-md-4">
-                        <div class="p-3 rounded-3" style="background: #f1f5f9;">
+                        <div class="p-3 rounded-3" style="background: rgba(255, 255, 255, 0.05);">
                             <small class="text-secondary text-uppercase fw-semibold font-monospace" style="font-size: 0.75rem; letter-spacing: 0.5px;">Data Abertura</small>
-                            <div class="fs-5 fw-medium text-dark mt-1">
+                            <div class="fs-5 fw-medium text-white mt-1">
                                 <i class="fa-regular fa-clock text-primary me-2"></i><?php echo $idCaixa ? htmlspecialchars($idCaixa['horaabre']) : '--'; ?>
                             </div>
                         </div>
                     </div>
                     
                     <div class="col-12 col-md-4">
-                        <div class="p-3 rounded-3" style="background: #f1f5f9;">
+                        <div class="p-3 rounded-3" style="background: rgba(255, 255, 255, 0.05);">
                             <small class="text-secondary text-uppercase fw-semibold font-monospace" style="font-size: 0.75rem; letter-spacing: 0.5px;">Total Entradas</small>
                             <div class="fs-4 fw-bold text-success mt-1">
                                 R$ <?php echo number_format($total_registralocado, 2, ',', '.'); ?>
@@ -300,7 +340,7 @@ $conexao->close(); // Fechar a conexão
                     </div>
                     
                     <div class="col-12 col-md-4">
-                        <div class="p-3 rounded-3" style="background: #f1f5f9;">
+                        <div class="p-3 rounded-3" style="background: rgba(255, 255, 255, 0.05);">
                             <small class="text-secondary text-uppercase fw-semibold font-monospace" style="font-size: 0.75rem; letter-spacing: 0.5px;">Hospedagens</small>
                             <div class="fs-5 fw-semibold text-info mt-1">
                                 <i class="fa-solid fa-bed text-info me-2"></i><?php echo $locacoes; ?>
@@ -390,15 +430,15 @@ $conexao->close(); // Fechar a conexão
                 </div>
             </div>
 
-            <!-- Mais info -->
+            <!-- Mais info (Destacado escuro) -->
             <div class="col">
                 <a href="quartos.php" class="text-decoration-none h-100 d-block">
-                    <div class="status-grid-card info text-dark">
+                    <div class="status-grid-card info">
                         <div class="icon-wrapper">
-                            <i class="fa-solid fa-ellipsis text-dark fs-4"></i>
+                            <i class="fa-solid fa-ellipsis text-white fs-4"></i>
                         </div>
                         <div>
-                            <div class="status-number text-dark">+</div>
+                            <div class="status-number text-white">+</div>
                             <div class="status-label">Ver Detalhes</div>
                         </div>
                     </div>
