@@ -12,7 +12,7 @@ use PhpMqtt\Client\ConnectionSettings;
 // CONFIGURAÇÃO DO BROKER MQTT - CENTRALIZADA
 // Adapte aqui para o IP/Domínio do seu Coolify
 // ==========================================================
-define('MQTT_BROKER_HOST', getenv('MQTT_HOST') ?: 'SEU_IP_COOLIFY');
+define('MQTT_BROKER_HOST', getenv('MQTT_HOST') ?: (getenv('MOTEL_DB_HOST') ?: (getenv('COMANDOS_DB_HOST') ?: '145.223.30.211')));
 define('MQTT_BROKER_PORT', 1883);
 define('MQTT_BROKER_USER', null); // Se tiver senha, coloque aqui
 define('MQTT_BROKER_PASS', null);

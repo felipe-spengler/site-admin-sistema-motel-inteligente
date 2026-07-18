@@ -550,6 +550,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $stmtPing = $pdoPing->prepare("INSERT INTO checkout_session_ping (numeroquarto, ultima_atividade) VALUES (:quarto, NOW()) ON DUPLICATE KEY UPDATE ultima_atividade = NOW()");
             $stmtPing->execute([':quarto' => $qNum]);
         }
+        // Publica também via MQTT
+        include_once 'mqtt_helper.php';
+        $pingCmd = "ping_checkout " . $qNum;
+        $mqttPayload = json_encode([
+            "id" => -1,
+            "comando" => $pingCmd
+        ]);
+        publicarComandoMqtt(strtolower($filial), $mqttPayload);
     }
     echo json_encode(["status" => "ok"]);
     exit();
@@ -1379,6 +1387,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
             // Ping a cada 30s para manter tela do Java aberta
             function enviarPingAtividade() {
+                console.log("Enviando ping de atividade para manter tela Java aberta (Quarto <?php echo $quarto; ?>)...");
                 fetch('checkout.php', {
                     method: 'POST',
                     headers: {
@@ -1388,7 +1397,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         action: 'ping_checkout',
                         quarto: <?php echo $quarto; ?>
                     })
-                }).catch(err => console.error("Erro no ping de atividade:", err));
+                })
+                .then(res => res.json())
+                .then(data => {
+                    console.log("Ping de atividade confirmado pelo servidor:", data);
+                })
+                .catch(err => console.error("Erro no ping de atividade:", err));
             }
             enviarPingAtividade(); // Dispara imediatamente ao abrir
             setInterval(enviarPingAtividade, 30000);
