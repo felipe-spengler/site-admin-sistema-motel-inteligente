@@ -13,14 +13,13 @@ function paginaAtiva($pagina, $pagina_ativa) {
 
 // Função para deixar o menu 'Relatórios' ativo se qualquer página de relatório estiver ativa
 function paginaRelatorioAtiva($pagina_ativa) {
-    $relatorios = array('EvolucaoVendas.php', 'DRE.php', 'ExtratoDiario.php', 'Hospedagens.php', 'demonstrativo_grafico.php', 'performance.php');
+    $relatorios = array('EvolucaoVendas.php', 'Dre.php', 'ExtratoDiario.php', 'demonstrativo_grafico.php', 'FluxoCaixa.php', 'performance.php');
     if (in_array($pagina_ativa, $relatorios)) {
         return 'ativo';
     } else {
         return '';
     }
 }
-
 // Seus estilos customizados DEVEM ser movidos para o <style> do arquivo principal (caixa.php)
 ?>
 
@@ -55,6 +54,7 @@ function paginaRelatorioAtiva($pagina_ativa) {
                     <ul class="dropdown-menu dropdown-menu-up" aria-labelledby="dropdownRelatorios">
                         <li><a class="dropdown-item text-wrap" href="EvolucaoVendas.php">Evolução de Vendas</a></li>
                         <li><a class="dropdown-item text-wrap" href="Dre.php">DRE</a></li>
+                        <li><a class="dropdown-item text-wrap" href="FluxoCaixa.php">Fluxo de Caixa</a></li>
                         <li><a class="dropdown-item text-wrap" href="performance.php">Dashboard Lucratividade</a></li>
                         <li><a class="dropdown-item text-wrap" href="ExtratoDiario.php">Extrato Diário</a></li>
                         <li><a class="dropdown-item text-wrap" href="demonstrativo_grafico.php">Gráficos</a></li>

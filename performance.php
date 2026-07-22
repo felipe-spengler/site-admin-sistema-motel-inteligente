@@ -178,19 +178,40 @@ $prevData = getFaturamentoETotal($conexao, $prevInicio, $prevFim);
 $faturamentoPrev = $prevData['faturamento'];
 $locacoesPrev = $prevData['locacoes'];
 
-// --- CÁLCULO DE LUCRO REAL ---
-$despesasProrateadas = ($despesasFixas / 30) * $diferencaDias;
-$custoOperacionalTotal = $locacoesAtual * $custoLimpeza;
+// --- CÁLCULO DE LUCRO REAL BASEADO NO FLUXO DE CAIXA ---
+$sqlTotalDesp = "SELECT SUM(valor) as total FROM despesas WHERE horario >= '$dataInicio' AND horario <= '$dataFim'";
+$resTotalDesp = $conexao->query($sqlTotalDesp);
+$despVal = ($resTotalDesp && $row = $resTotalDesp->fetch_assoc()) ? (float)($row['total'] ?? 0.0) : 0.0;
 
-$deducaoAluguel = 0;
-if ($tipoAluguel == 'porcentagem') {
-    $deducaoAluguel = $faturamentoAtual * ($valorAluguel / 100);
-} else {
-    $deducaoAluguel = ($valorAluguel / 30) * $diferencaDias;
+$sqlTotalRet = "SELECT SUM(valor) as total FROM retiradas_caixa WHERE horario >= '$dataInicio' AND horario <= '$dataFim'";
+$resTotalRet = $conexao->query($sqlTotalRet);
+$retVal = ($resTotalRet && $row = $resTotalRet->fetch_assoc()) ? (float)($row['total'] ?? 0.0) : 0.0;
+
+$totalDespesasReais = $despVal + $retVal;
+$lucroLiquido = $faturamentoAtual - $totalDespesasReais;
+$margemLiquida = $faturamentoAtual > 0 ? ($lucroLiquido / $faturamentoAtual) * 100 : 0;
+
+// Gráfico: Destino do seu Faturamento (Categorias do fluxo + Lucro se positivo)
+$sqlCat = "SELECT categoria, SUM(valor) as total FROM despesas WHERE horario >= '$dataInicio' AND horario <= '$dataFim' GROUP BY categoria";
+$resCat = $conexao->query($sqlCat);
+$chartLabels = [];
+$chartValues = [];
+
+if ($resCat) {
+    while ($row = $resCat->fetch_assoc()) {
+        $chartLabels[] = htmlspecialchars($row['categoria']);
+        $chartValues[] = (float)$row['total'];
+    }
 }
-
-$lucroLiquido = $faturamentoAtual - $deducaoAluguel - $custoOperacionalTotal - $despesasProrateadas;
-// -----------------------------
+if ($retVal > 0) {
+    $chartLabels[] = "Retiradas/Sangrias";
+    $chartValues[] = $retVal;
+}
+if ($lucroLiquido > 0) {
+    $chartLabels[] = "Lucro Líquido";
+    $chartValues[] = $lucroLiquido;
+}
+// --------------------------------------------------------
 
 // KPIs
 $qtdQuartos = 9; // Conforme requisito
@@ -307,9 +328,9 @@ if ($resFirst && $rowFirst = $resFirst->fetch_assoc()) {
 
 // AI Insights
 // Mantida apenas a regra matemática de Ponto de Equilíbrio (Break-Even) nativa
-if ($faturamentoAtual < ($despesasProrateadas + $deducaoAluguel) && $faturamentoAtual > 0) {
-    $falta = ($despesasProrateadas + $deducaoAluguel) - $faturamentoAtual;
-    $insights[] = "📉 <b>Ponto de Equilíbrio:</b> Faltam R$ " . number_format($falta, 2, ',', '.') . " para você cobrir todos os seus custos (Aluguel, Limpeza e Fixos). A partir deste valor na tela, começaremos a lucrar.";
+if ($faturamentoAtual < $totalDespesasReais && $faturamentoAtual > 0) {
+    $falta = $totalDespesasReais - $faturamentoAtual;
+    $insights[] = "📉 <b>Ponto de Equilíbrio:</b> Faltam R$ " . number_format($falta, 2, ',', '.') . " para você cobrir as despesas reais deste período. A partir deste valor, começaremos a lucrar.";
 }
 
 // Integracão IA GEMINI Expandida
@@ -325,11 +346,11 @@ if (empty($geminiApiKey)) {
 } else {
     $prompt = "Atue como um consultor sênior de gestão hoteleira e motéis. Analise os seguintes dados atuais do dashboard:\n" .
               "Faturamento: R$ " . number_format($faturamentoAtual, 2, ',', '.') . "\n" .
-              "Lucro Líquido: R$ " . number_format($lucroLiquido, 2, ',', '.') . " (Margem de " . number_format($margemLiquida, 1, ',', '.') . "%)\n" .
+              "Despesas Reais Lançadas: R$ " . number_format($totalDespesasReais, 2, ',', '.') . "\n" .
+              "Lucro Líquido Real: R$ " . number_format($lucroLiquido, 2, ',', '.') . " (Margem de " . number_format($margemLiquida, 1, ',', '.') . "%)\n" .
               "Ticket Médio: R$ " . number_format($ticketMedio, 2, ',', '.') . "\n" .
               "Giro Diário: " . number_format($giroDiario, 2, ',', '.') . "\n" .
-              "Modelo de Aluguel Configurado: " . ($tipoAluguel == 'porcentagem' ? 'Porcentagem do Faturamento' : 'Valor Fixo Diário/Mensal') . "\n" .
-              "Ocupação do Período: " . $locacoesAtual . " locações realizadas em relação a um teto máximo físico estimado de " . $capacidade_maxima . " locações para o mesmo período.\n" .
+              "Ocupação do Período: " . $locacoesAtual . " locações realizadas em relação a um teto máximo físico de " . $capacidade_maxima . " locações para o mesmo período.\n" .
               "Período: " . date('d/m/Y', strtotime($dataInicio)) . " a " . date('d/m/Y', strtotime($dataFim)) . "\n\n" .
               "Sua tarefa é gerar 3 insights diretos, agressivos comercialmente e separados:\n" .
               "1) Um sobre a Margem de Lucratividade atual vs Custos.\n" .
@@ -436,29 +457,13 @@ $conexao->close();
                 </button>
             </div>
         </div>
-
-        <?php if($alertaCustos): ?>
-        <!-- Aviso de Custos Zerados -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="alert alert-warning border border-yellow-300 bg-yellow-50 text-yellow-800 p-4 mb-0 flex items-center shadow-sm rounded-lg" role="alert">
-                    <span class="text-3xl mr-3">⚠️</span>
-                    <div class="leading-relaxed">
-                        <strong class="font-bold uppercase tracking-wider block mb-1">Ação Necessária: Setup Financeiro</strong>
-                        Configure seus Custos Fixos e Variáveis ali embaixo no botão cinza <b>"Ajustar Parâmetros"</b> para ativar o cálculo de lucratividade. Enquanto os valores estiverem zerados, seu lucro parecerá irrealmente idêntico ao Faturamento Bruto!
-                    </div>
-                </div>
-            </div>
-        </div>
-        <?php endif; ?>
-
-        <!-- Lucro Líquido Dash -->
+        <!-- Lucro Líquido Real Dash -->
         <div class="row mb-4">
             <div class="col-md-12">
                 <div class="bg-emerald-500 text-white rounded-xl shadow-lg p-6 text-center transform transition duration-500 hover:scale-105">
-                    <p class="text-xl font-bold uppercase tracking-widest opacity-90 mb-2">💰 Lucro Líquido Estimado</p>
+                    <p class="text-xl font-bold uppercase tracking-widest opacity-90 mb-2">💰 Lucro Líquido Real</p>
                     <p class="text-5xl font-extrabold mb-2">R$ <?= number_format($lucroLiquido, 2, ',', '.') ?></p>
-                    <p class="text-sm font-medium opacity-85">Receita livre após abater Aluguel, Operação e Despesas Fixas desse período.</p>
+                    <p class="text-sm font-medium opacity-85">Faturamento Bruto descontando todas as despesas e retiradas reais lançadas no Fluxo de Caixa para este período.</p>
                 </div>
             </div>
         </div>
@@ -496,56 +501,7 @@ $conexao->close();
             </div>
         </div>
 
-        <div class="mb-4">
-            <button class="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-2 px-4 border border-gray-300 rounded shadow-sm flex items-center justify-center transition-colors" type="button" data-bs-toggle="modal" data-bs-target="#modalSettings">
-                ⚙️ Ajustar Parâmetros Financeiros (Custo Fixo e Variável)
-                <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-            </button>
-        </div>
 
-        <!-- Modal -->
-        <div class="modal fade" id="modalSettings" tabindex="-1" aria-labelledby="modalSettingsLabel" aria-hidden="true">
-          <div class="modal-dialog modal-lg">
-            <div class="modal-content border-0 shadow-lg">
-              <div class="modal-header bg-slate-100 text-gray-800 border-b border-gray-200">
-                <h5 class="modal-title font-bold" id="modalSettingsLabel">⚙️ Parâmetros Financeiros</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-              </div>
-              <div class="modal-body bg-slate-50 p-4">
-                <form method="post" action="performance.php" class="row g-3">
-                    <input type="hidden" name="period" value="<?= htmlspecialchars($selectedPeriod) ?>">
-                    <input type="hidden" name="update_gestao" value="1">
-                    
-                    <div class="col-md-6 mb-2">
-                        <label class="form-label font-bold text-gray-700">🏠 Modelo de Aluguel</label>
-                        <select name="tipo_aluguel" class="form-select border-indigo-200 shadow-sm">
-                            <option value="porcentagem" <?= $tipoAluguel == 'porcentagem' ? 'selected' : '' ?>>Porcentagem do Faturamento (%)</option>
-                            <option value="fixo" <?= $tipoAluguel == 'fixo' ? 'selected' : '' ?>>Valor Fixo Mensal (R$)</option>
-                        </select>
-                    </div>
-                    <div class="col-md-6 mb-2">
-                        <label class="form-label font-bold text-gray-700">Valor do Aluguel (% ou R$)</label>
-                        <input type="text" name="valor_aluguel" class="form-control border-indigo-200 shadow-sm" value="<?= number_format($valorAluguel, 2, ',', '') ?>">
-                    </div>
-                    <div class="col-md-6 mb-2">
-                        <label class="form-label font-bold text-gray-700">🧼 Limpeza por Locação (R$)</label>
-                        <input type="text" name="custo_limpeza" class="form-control border-indigo-200 shadow-sm" value="<?= number_format($custoLimpeza, 2, ',', '') ?>" placeholder="Custo lavanderia/insumo">
-                    </div>
-                    <div class="col-md-6 mb-2">
-                        <label class="form-label font-bold text-gray-700">Gasto Fixo Mensal (R$)</label>
-                        <input type="text" name="despesas_fixas" class="form-control border-indigo-200 shadow-sm" value="<?= number_format($despesasFixas, 2, ',', '') ?>" placeholder="Soma de luz, net, holerites...">
-                    </div>
-                    <div class="col-12 mt-4 text-end">
-                        <button type="button" class="btn btn-secondary bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded shadow me-2 border-0" data-bs-dismiss="modal">Fechar</button>
-                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 border-0 text-white font-semibold py-2 px-6 rounded shadow transition duration-200">
-                            Gravar Parâmetros
-                        </button>
-                    </div>
-                </form>
-              </div>
-            </div>
-          </div>
-        </div>
 
         <!-- KPIs 4 Colunas -->
         <div class="row mb-4">
@@ -848,15 +804,10 @@ $conexao->close();
             new Chart(ctxDestino, {
                 type: 'doughnut',
                 data: {
-                    labels: ['Aluguel (<?= $tipoAluguel == 'porcentagem' ? number_format($valorAluguel,0).'% da fatia' : 'Fixo prorateado' ?>)', 'Custos Insumos', 'Despesas Fixas', 'Lucro Líquido'],
+                    labels: <?= json_encode($chartLabels) ?>,
                     datasets: [{
-                        data: [
-                            <?= json_encode(max(0, $deducaoAluguel)) ?>, 
-                            <?= json_encode(max(0, $custoOperacionalTotal)) ?>, 
-                            <?= json_encode(max(0, $despesasProrateadas)) ?>, 
-                            <?= json_encode(max(0, $lucroLiquido)) ?>
-                        ],
-                        backgroundColor: ['#f59e0b', '#3b82f6', '#ef4444', '#10b981'],
+                        data: <?= json_encode($chartValues) ?>,
+                        backgroundColor: ['#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#eab308', '#f43f5e', '#10b981'],
                         borderWidth: 0,
                     }]
                 },
