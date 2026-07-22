@@ -344,19 +344,38 @@ $insightIAText = "";
 if (empty($geminiApiKey)) {
     $insights[] = "⚠️ <b>Alerta de Setup:</b> A variável de ambiente <code>GEMINI_API_KEY</code> não foi encontrada no servidor. A I.A. Sócio Virtual está pausada.";
 } else {
-    $prompt = "Atue como um consultor sênior de gestão hoteleira e motéis. Analise os seguintes dados atuais do dashboard:\n" .
-              "Faturamento: R$ " . number_format($faturamentoAtual, 2, ',', '.') . "\n" .
-              "Despesas Reais Lançadas: R$ " . number_format($totalDespesasReais, 2, ',', '.') . "\n" .
-              "Lucro Líquido Real: R$ " . number_format($lucroLiquido, 2, ',', '.') . " (Margem de " . number_format($margemLiquida, 1, ',', '.') . "%)\n" .
+    $despesasDetalhadasTexto = "";
+    if (isset($chartLabels) && isset($chartValues)) {
+        foreach ($chartLabels as $index => $label) {
+            if ($label !== 'Lucro Líquido') {
+                $despesasDetalhadasTexto .= "- {$label}: R$ " . number_format($chartValues[$index], 2, ',', '.') . "\n";
+            }
+        }
+    }
+
+    $fatMoM = $faturamentoPrev > 0 ? (($faturamentoAtual - $faturamentoPrev) / $faturamentoPrev) * 100 : 0;
+    $locMoM = $locacoesPrev > 0 ? (($locacoesAtual - $locacoesPrev) / $locacoesPrev) * 100 : 0;
+    $ticketMoM = $ticketMedioPrev > 0 ? (($ticketMedio - $ticketMedioPrev) / $ticketMedioPrev) * 100 : 0;
+
+    $prompt = "Atue como um consultor sênior especialista em gestão estratégica e BI de motéis. Analise com atenção milimétrica os números abaixo:\n\n" .
+              "--- DADOS DO PERÍODO ATUAL ---\n" .
+              "Período: " . date('d/m/Y', strtotime($dataInicio)) . " a " . date('d/m/Y', strtotime($dataFim)) . " (" . $diferencaDias . " dias)\n" .
+              "Faturamento Bruto: R$ " . number_format($faturamentoAtual, 2, ',', '.') . "\n" .
+              "Total de Despesas Lançadas: R$ " . number_format($totalDespesasReais, 2, ',', '.') . "\n" .
+              "Lucro Líquido Real: R$ " . number_format($lucroLiquido, 2, ',', '.') . " (Margem: " . number_format($margemLiquida, 1, ',', '.') . "%)\n" .
               "Ticket Médio: R$ " . number_format($ticketMedio, 2, ',', '.') . "\n" .
-              "Giro Diário: " . number_format($giroDiario, 2, ',', '.') . "\n" .
-              "Ocupação do Período: " . $locacoesAtual . " locações realizadas em relação a um teto máximo físico de " . $capacidade_maxima . " locações para o mesmo período.\n" .
-              "Período: " . date('d/m/Y', strtotime($dataInicio)) . " a " . date('d/m/Y', strtotime($dataFim)) . "\n\n" .
-              "Sua tarefa é gerar 3 insights diretos, agressivos comercialmente e separados:\n" .
-              "1) Um sobre a Margem de Lucratividade atual vs Custos.\n" .
-              "2) Um sobre o Ticket Médio (sugira táticas de aumento rápido de vendas, frigobar, se menor que 90 reais).\n" .
-              "3) Um sobre o Giro / Ocupação e rotatividade.\n" .
-              "Seja conciso. Use emojis no início de cada tópico. Não repita informações. Use tags HTML <br> e <b> se precisar destacar, formatando como um relatório executivo.";
+              "Giro Diário (Locações por quarto por dia): " . number_format($giroDiario, 2, ',', '.') . " (Ocupação: " . $locacoesAtual . " locações realizadas em relação à capacidade máxima física estimada de " . $capacidade_maxima . " locações)\n" .
+              "\n--- DETALHAMENTO DE DESPESAS ---\n" .
+              (empty($despesasDetalhadasTexto) ? "Nenhuma despesa lançada no período\n" : $despesasDetalhadasTexto) .
+              "\n--- COMPARAÇÃO COM PERÍODO ANTERIOR (MoM) ---\n" .
+              "Faturamento MoM: " . ($fatMoM >= 0 ? "+" : "") . number_format($fatMoM, 1, ',', '.') . "%\n" .
+              "Ocupação/Locações MoM: " . ($locMoM >= 0 ? "+" : "") . number_format($locMoM, 1, ',', '.') . "%\n" .
+              "Ticket Médio MoM: " . ($ticketMoM >= 0 ? "+" : "") . number_format($ticketMoM, 1, ',', '.') . "%\n\n" .
+              "Sua tarefa é gerar 3 insights executivos de altíssimo nível, focados 100% em ações práticas baseadas nesses números específicos. Siga estas regras estritamente:\n" .
+              "- NUNCA use introduções nem despedidas (nada de 'Prezados Gestores', 'Atenciosamente', 'Apresento a análise'). Comece direto no conteúdo do primeiro insight.\n" .
+              "- NUNCA dê conselhos teóricos óbvios (como 'treine sua equipe', 'crie combos', 'promova marketing'). Seja específico sobre qual despesa cortar ou qual indicador alavancar baseado nos valores informados.\n" .
+              "- Destaque e calcule porcentagens específicas baseadas na divisão de despesas fornecida. Faça correlações (ex: correlacione a maior despesa com o faturamento, ou o custo de aluguel/fixos com a margem).\n" .
+              "- Formate a saída como um relatório executivo curto com tags HTML <br> e <b>. Use exatamente 3 parágrafos, cada um com um emoji forte de negócios no início.";
 
     $geminiData = json_encode(['contents' => [['parts' => [['text' => $prompt]]]]]);
     $ch = curl_init('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' . $geminiApiKey);
