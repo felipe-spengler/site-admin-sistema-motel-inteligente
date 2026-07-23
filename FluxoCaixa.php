@@ -275,6 +275,11 @@ foreach ($movimentacoes as $mov) {
 
 $saldoLiquido = $totalReceitas - $totalDespesas;
 
+// Filtrar apenas despesas para exibição na tabela detalhada (assim como no Java)
+$despesasExibir = array_filter($movimentacoes, function ($mov) {
+    return $mov['tipo'] === 'despesa';
+});
+
 $conexao->close();
 ?>
 <!DOCTYPE html>
@@ -289,14 +294,28 @@ $conexao->close();
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="//code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
     
+    <!-- Google Fonts - Inter & Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.js"></script>
     
     <style>
+        :root {
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --card-border: rgba(0, 0, 0, 0.08);
+            --text-color: #1e293b;
+            --font-primary: 'Inter', sans-serif;
+            --font-title: 'Outfit', sans-serif;
+        }
+
         body {
-            background-color: #0b0f19;
-            color: #e2e8f0;
-            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: var(--font-primary);
             margin-bottom: 90px;
         }
         
@@ -306,32 +325,34 @@ $conexao->close();
         }
 
         .title-gradient {
-            background: linear-gradient(45deg, #3b82f6, #10b981);
+            font-family: var(--font-title);
+            background: linear-gradient(45deg, #1e3a8a, #3b82f6);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             font-weight: 800;
         }
 
-        /* Glassmorphism Filters Panel */
+        /* Premium Light Panels */
         .glass-panel {
-            background: rgba(17, 24, 39, 0.7);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
             border-radius: 16px;
             padding: 20px;
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.08);
         }
 
         .metric-card {
-            background: rgba(17, 24, 39, 0.85);
-            border: 1px solid rgba(255, 255, 255, 0.06);
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
             border-radius: 16px;
             padding: 20px;
             transition: all 0.3s ease;
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.08);
         }
         
         .metric-card:hover {
             transform: translateY(-4px);
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 15px 35px -10px rgba(0, 0, 0, 0.12);
         }
 
         .btn-premium {
@@ -362,57 +383,58 @@ $conexao->close();
 
         /* Table custom styling */
         .custom-table {
-            background: rgba(17, 24, 39, 0.6);
-            color: #e2e8f0;
+            background: var(--card-bg);
+            color: var(--text-color);
             border-radius: 12px;
             overflow: hidden;
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--card-border);
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.08);
         }
 
         .custom-table th {
-            background: rgba(15, 23, 42, 0.95);
-            color: #94a3b8;
+            background: #f1f5f9;
+            color: #475569;
             font-weight: 600;
-            border-bottom: 2px solid rgba(255, 255, 255, 0.08);
+            border-bottom: 2px solid rgba(0, 0, 0, 0.08);
             padding: 14px;
         }
 
         .custom-table td {
             padding: 12px 14px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
             vertical-align: middle;
         }
 
         .custom-table tr:hover td {
-            background: rgba(255, 255, 255, 0.02);
+            background: #f8fafc;
         }
 
         .form-control, .form-select {
-            background-color: #0f172a;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: #e2e8f0;
+            background-color: #ffffff;
+            border: 1px solid rgba(0, 0, 0, 0.15);
+            color: var(--text-color);
         }
 
         .form-control:focus, .form-select:focus {
-            background-color: #0f172a;
+            background-color: #ffffff;
             border-color: #3b82f6;
-            color: #e2e8f0;
+            color: var(--text-color);
             box-shadow: 0 0 0 0.25rem rgba(59, 130, 246, 0.25);
         }
 
         .modal-content {
-            background-color: #0f172a;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: #e2e8f0;
+            background-color: #ffffff;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            color: var(--text-color);
             border-radius: 16px;
         }
 
         .modal-header {
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
         }
 
         .modal-footer {
-            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            border-top: 1px solid rgba(0, 0, 0, 0.08);
         }
 
         /* Print formatting */
@@ -466,7 +488,7 @@ $conexao->close();
                 <button type="button" class="btn btn-premium d-inline-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#modalLancar">
                     <i class="bi bi-plus-circle-fill"></i> Lançar Despesa
                 </button>
-                <button onclick="window.print()" class="btn btn-outline-light ms-2 d-inline-flex align-items-center gap-2 btn-action">
+                <button onclick="window.print()" class="btn btn-outline-secondary ms-2 d-inline-flex align-items-center gap-2 btn-action">
                     <i class="bi bi-printer-fill"></i> Imprimir / PDF
                 </button>
             </div>
@@ -477,7 +499,7 @@ $conexao->close();
             <div class="alert alert-<?= $tipoFeedback ?> alert-dismissible fade show border-0 shadow-lg mb-4 rounded-3" role="alert">
                 <i class="bi bi-info-circle-fill me-2"></i>
                 <?= $mensagemFeedback ?>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="alert" aria-label="Close"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             </div>
         <?php endif; ?>
 
@@ -505,11 +527,11 @@ $conexao->close();
                 <div class="metric-card d-flex align-items-center justify-content-between">
                     <div>
                         <span class="text-muted d-block text-uppercase fw-semibold" style="font-size: 0.8rem; letter-spacing: 1px;">Saldo Líquido</span>
-                        <h3 class="fw-bold mt-1 <?= $saldoLiquido >= 0 ? 'text-info' : 'text-warning' ?>">
+                        <h3 class="fw-bold mt-1 <?= $saldoLiquido >= 0 ? 'text-primary' : 'text-danger' ?>">
                             R$ <?= number_format($saldoLiquido, 2, ',', '.') ?>
                         </h3>
                     </div>
-                    <i class="bi bi-wallet2 <?= $saldoLiquido >= 0 ? 'text-info' : 'text-warning' ?> fs-1 opacity-75"></i>
+                    <i class="bi bi-wallet2 <?= $saldoLiquido >= 0 ? 'text-primary' : 'text-danger' ?> fs-1 opacity-75"></i>
                 </div>
             </div>
         </div>
@@ -568,23 +590,23 @@ $conexao->close();
                     </tr>
                 </thead>
                 <tbody>
-                    <?php if (empty($movimentacoes)): ?>
+                    <?php if (empty($despesasExibir)): ?>
                         <tr>
-                            <td colspan="8" class="text-center py-4 text-muted">Nenhuma movimentação financeira encontrada para o período selecionado.</td>
+                            <td colspan="8" class="text-center py-4 text-muted">Nenhuma despesa ou retirada encontrada para o período selecionado.</td>
                         </tr>
                     <?php else: ?>
-                        <?php foreach ($movimentacoes as $mov): ?>
+                        <?php foreach ($despesasExibir as $mov): ?>
                             <tr>
                                 <td><?= date('d/m/Y H:i', strtotime($mov['data'])) ?></td>
                                 <td>
-                                    <span class="badge rounded-pill <?= $mov['tipo'] === 'receita' ? 'badge-receita' : 'badge-despesa' ?>">
-                                        <?= ucfirst($mov['tipo']) ?>
+                                    <span class="badge rounded-pill badge-despesa">
+                                        <?= $mov['categoria'] === 'Retirada/Sangria' ? 'Retirada' : 'Despesa' ?>
                                     </span>
                                 </td>
                                 <td><?= htmlspecialchars($mov['descricao']) ?></td>
                                 <td><?= htmlspecialchars($mov['categoria']) ?></td>
-                                <td class="fw-bold <?= $mov['tipo'] === 'receita' ? 'text-success' : 'text-danger' ?>">
-                                    R$ <?= number_format($mov['valor'], 2, ',', '.') ?>
+                                <td class="fw-bold text-danger">
+                                    - R$ <?= number_format($mov['valor'], 2, ',', '.') ?>
                                 </td>
                                 <td><span class="text-capitalize"><?= htmlspecialchars($mov['formapagamento']) ?></span></td>
                                 <td>
@@ -593,7 +615,7 @@ $conexao->close();
                                     </span>
                                 </td>
                                 <td class="text-end btn-action">
-                                    <?php if ($mov['tipo'] === 'despesa' && $mov['categoria'] !== 'Retirada/Sangria'): ?>
+                                    <?php if ($mov['categoria'] !== 'Retirada/Sangria'): ?>
                                         <button onclick="abrirModalEdicao(<?= htmlspecialchars(json_encode($mov)) ?>)" class="btn btn-sm btn-outline-warning me-1">
                                             <i class="bi bi-pencil-square"></i>
                                         </button>
@@ -621,7 +643,7 @@ $conexao->close();
                     <input type="hidden" name="action" value="lancar">
                     <div class="modal-header">
                         <h5 class="modal-title fw-bold" id="modalLancarLabel">Lançar Nova Despesa</h5>
-                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
                         <div class="mb-3">
@@ -683,7 +705,7 @@ $conexao->close();
                     <input type="hidden" name="id" id="edit_id">
                     <div class="modal-header">
                         <h5 class="modal-title fw-bold" id="modalEditarLabel">Editar Despesa</h5>
-                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
                         <div class="mb-3">
@@ -745,7 +767,7 @@ $conexao->close();
                     <input type="hidden" name="id" id="delete_id">
                     <div class="modal-header">
                         <h6 class="modal-title fw-bold text-danger"><i class="bi bi-exclamation-triangle-fill"></i> Excluir Lançamento</h6>
-                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body text-center">
                         <p class="mb-0">Tem certeza que deseja excluir a despesa:</p>
