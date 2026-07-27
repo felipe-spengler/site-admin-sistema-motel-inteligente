@@ -115,11 +115,16 @@ function calculaFaturamentoPorMes($conexao, $ano)
         $faturamentoPorMes[$mes] = 0;
     }
 
-    // Consulta para obter o faturamento para cada mês do ano
-    $sql = "SELECT MONTH(horaabre) as mes, SUM(saldofecha) as total_faturamento
-             FROM caixa 
-             WHERE YEAR(horaabre) = $ano 
-             GROUP BY MONTH(horaabre)";
+    // Consulta para obter o faturamento (Hospedagens + Consumos + Vendas Avulsas) para cada mês do ano
+    $sql = "SELECT 
+                MONTH(c.horaabre) as mes, 
+                SUM(
+                    COALESCE((SELECT SUM(rl.pagodinheiro + rl.pagopix + rl.pagocartao) FROM registralocado rl WHERE rl.idcaixaatual = c.id), 0) +
+                    COALESCE((SELECT SUM(va.valortotal) FROM vendas_avulsas va WHERE va.idcaixa = c.id AND va.tipo != 'adiantamento'), 0)
+                ) as total_faturamento
+             FROM caixa c
+             WHERE YEAR(c.horaabre) = $ano 
+             GROUP BY MONTH(c.horaabre)";
 
     $result = $conexao->query($sql);
 
@@ -129,7 +134,7 @@ function calculaFaturamentoPorMes($conexao, $ano)
     }
 
     while ($row = $result->fetch_assoc()) {
-        $faturamentoPorMes[$row['mes']] = $row['total_faturamento'] ?? 0;
+        $faturamentoPorMes[$row['mes']] = (float)($row['total_faturamento'] ?? 0.00);
     }
 
     return array('success' => true, 'faturamento' => $faturamentoPorMes);

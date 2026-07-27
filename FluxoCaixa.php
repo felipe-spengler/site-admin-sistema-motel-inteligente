@@ -656,6 +656,7 @@ $conexao->close();
                                 <option value="Gastos Fixos">Gastos Fixos</option>
                                 <option value="Aluguel">Aluguel</option>
                                 <option value="Limpeza / Lavanderia">Limpeza / Lavanderia</option>
+                                <option value="Cozinha">Cozinha</option>
                                 <option value="Manutenção">Manutenção</option>
                                 <option value="Frigobar / Reposição">Frigobar / Reposição</option>
                                 <option value="Marketing / Divulgação">Marketing / Divulgação</option>
@@ -718,6 +719,7 @@ $conexao->close();
                                 <option value="Gastos Fixos">Gastos Fixos</option>
                                 <option value="Aluguel">Aluguel</option>
                                 <option value="Limpeza / Lavanderia">Limpeza / Lavanderia</option>
+                                <option value="Cozinha">Cozinha</option>
                                 <option value="Manutenção">Manutenção</option>
                                 <option value="Frigobar / Reposição">Frigobar / Reposição</option>
                                 <option value="Marketing / Divulgação">Marketing / Divulgação</option>
