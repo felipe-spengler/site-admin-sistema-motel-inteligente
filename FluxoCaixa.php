@@ -55,6 +55,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["action"])) {
         $status = trim($_POST["status"] ?? "pago");
         $usuario = $_COOKIE["usuario_login"] ?? "Site";
         
+        $horarioInput = trim($_POST["horario"] ?? "");
+        $horarioMysql = null;
+        if (!empty($horarioInput)) {
+            $horarioMysql = str_replace('T', ' ', $horarioInput) . ':00';
+        }
+        
         if (!empty($descricao) && !empty($categoria) && $valor > 0) {
             $payload = json_encode([
                 "descricao" => $descricao,
@@ -63,7 +69,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["action"])) {
                 "formapagamento" => $formapagamento,
                 "status" => $status,
                 "usuario" => $usuario,
-                "idcaixa" => 0 // Java vai preencher com o ID do caixa aberto local
+                "idcaixa" => 0, // Java vai preencher com o ID do caixa aberto local
+                "horario" => $horarioMysql
             ]);
             
             if (publicarComandoMqtt($filial, "lancar_despesa " . $payload)) {
@@ -87,6 +94,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["action"])) {
         $formapagamento = trim($_POST["formapagamento"] ?? "dinheiro");
         $status = trim($_POST["status"] ?? "pago");
         
+        $horarioInput = trim($_POST["horario"] ?? "");
+        $horarioMysql = null;
+        if (!empty($horarioInput)) {
+            $horarioMysql = str_replace('T', ' ', $horarioInput) . ':00';
+        }
+        
         if ($id > 0 && !empty($descricao) && !empty($categoria) && $valor > 0) {
             $payload = json_encode([
                 "id" => $id,
@@ -95,7 +108,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["action"])) {
                 "valor" => $valor,
                 "formapagamento" => $formapagamento,
                 "status" => $status,
-                "idcaixa" => 0
+                "idcaixa" => 0,
+                "horario" => $horarioMysql
             ]);
             
             if (publicarComandoMqtt($filial, "editar_despesa " . $payload)) {
@@ -127,6 +141,28 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["action"])) {
             }
         }
     }
+
+    elseif ($action === "salvar_taxas") {
+        $taxa_credito = (float)str_replace(',', '.', $_POST["taxa_credito"] ?? "0");
+        $taxa_debito = (float)str_replace(',', '.', $_POST["taxa_debito"] ?? "0");
+        $taxa_pix = (float)str_replace(',', '.', $_POST["taxa_pix"] ?? "0");
+
+        $stmt = $conexao->prepare("UPDATE configuracoes SET taxa_credito = ?, taxa_debito = ?, taxa_pix = ?");
+        if ($stmt) {
+            $stmt->bind_param("ddd", $taxa_credito, $taxa_debito, $taxa_pix);
+            if ($stmt->execute()) {
+                header("Location: FluxoCaixa.php?sucesso=4");
+                exit();
+            } else {
+                $mensagemFeedback = "Erro ao salvar taxas administrativas no banco de dados.";
+                $tipoFeedback = "danger";
+            }
+            $stmt->close();
+        } else {
+            $mensagemFeedback = "Erro ao preparar query para salvar taxas.";
+            $tipoFeedback = "danger";
+        }
+    }
 }
 
 // Mensagens de sucesso vindas do redirect
@@ -137,6 +173,8 @@ if ($sucessoGet === "1") {
     $mensagemFeedback = "Edição de despesa enviada para o caixa local com sucesso! Sincronizando...";
 } elseif ($sucessoGet === "3") {
     $mensagemFeedback = "Exclusão de despesa enviada para o caixa local com sucesso! Sincronizando...";
+} elseif ($sucessoGet === "4") {
+    $mensagemFeedback = "Taxas administrativas salvas com sucesso!";
 }
 
 // ------ LÓGICA DE DATAS E FILTROS ------
@@ -148,7 +186,7 @@ function formatarDataMysql($data, $horaInicial = true) {
     return date('Y-m-d H:i:s');
 }
 
-$selectedPeriod = $_POST["period"] ?? 'this_month';
+$selectedPeriod = $_POST["period"] ?? ($_GET["period"] ?? 'this_month');
 switch ($selectedPeriod) {
     case "today":
         $dataInicio = date('Y-m-d') . ' 00:00:00';
@@ -174,6 +212,9 @@ switch ($selectedPeriod) {
         if (isset($_POST["data_inicio"]) && isset($_POST["data_fim"])) {
             $dataInicio = formatarDataMysql($_POST["data_inicio"], true);
             $dataFim = formatarDataMysql($_POST["data_fim"], false);
+        } elseif (isset($_GET["data_inicio"]) && isset($_GET["data_fim"])) {
+            $dataInicio = formatarDataMysql($_GET["data_inicio"], true);
+            $dataFim = formatarDataMysql($_GET["data_fim"], false);
         } else {
             $dataInicio = date('Y-m-01') . ' 00:00:00';
             $dataFim = date('Y-m-d') . ' 23:59:59';
@@ -189,96 +230,194 @@ switch ($selectedPeriod) {
 
 // ------ OBTENÇÃO DOS DADOS DO BANCO ------
 
-// 1. Obter IDs dos Caixas correspondentes ao período
-$idCaixas = [];
-$sqlCaixa = "SELECT id FROM caixa WHERE horaabre >= '$dataInicio' AND horaabre <= '$dataFim'";
-$resCaixa = $conexao->query($sqlCaixa);
-if ($resCaixa) {
-    while ($row = $resCaixa->fetch_assoc()) {
-        $idCaixas[] = $row['id'];
-    }
-}
-$idsStr = count($idCaixas) > 0 ? implode(",", $idCaixas) : "0";
-
-$movimentacoes = [];
-
-// 2. Query Receitas (Hospedagens)
-$sqlHosp = "SELECT r.idlocacao AS id, r.horainicio AS data, CONCAT('Locação Quarto ', r.numquarto) AS descricao, 'Hospedagem' AS categoria, 
-                   (r.pagodinheiro + r.pagopix + r.pagocartao) AS valor, 
-                   CASE 
-                     WHEN r.pagodinheiro > 0 AND r.pagopix = 0 AND r.pagocartao = 0 THEN 'dinheiro'
-                     WHEN r.pagopix > 0 AND r.pagodinheiro = 0 AND r.pagocartao = 0 THEN 'pix'
-                     WHEN r.pagocartao > 0 AND r.pagodinheiro = 0 AND r.pagopix = 0 THEN 'cartao'
-                     ELSE 'misto'
-                   END AS formapagamento, 
-                   'pago' AS status, 'receita' AS tipo
-            FROM registralocado r
-            WHERE r.idcaixaatual IN ($idsStr)";
-$resHosp = $conexao->query($sqlHosp);
-if ($resHosp) {
-    while ($row = $resHosp->fetch_assoc()) {
-        $movimentacoes[] = $row;
-    }
+// 0. Carregar Taxas Administrativas
+$taxaCredito = 0.0;
+$taxaDebito = 0.0;
+$taxaPix = 0.0;
+$sqlConfig = "SELECT taxa_credito, taxa_debito, taxa_pix FROM configuracoes LIMIT 1";
+$resConfig = $conexao->query($sqlConfig);
+if ($resConfig && $rowConfig = $resConfig->fetch_assoc()) {
+    $taxaCredito = (float)$rowConfig['taxa_credito'];
+    $taxaDebito = (float)$rowConfig['taxa_debito'];
+    $taxaPix = (float)$rowConfig['taxa_pix'];
 }
 
-// 3. Query Receitas (Vendas Avulsas)
-$sqlAv = "SELECT v.id, v.horario AS data, v.descricao, 'Venda Avulsa' AS categoria, v.valortotal AS valor, v.formapagamento, 'pago' AS status, 'receita' AS tipo
-          FROM vendas_avulsas v
-          WHERE v.idcaixa IN ($idsStr) AND v.tipo != 'adiantamento'";
-$resAv = $conexao->query($sqlAv);
-if ($resAv) {
-    while ($row = $resAv->fetch_assoc()) {
-        $row['formapagamento'] = strtolower($row['formapagamento']);
-        $movimentacoes[] = $row;
-    }
-}
+// 1. Consultar Locações (Faturamento)
+$faturamentoTotal = 0.0;
+$faturamentoMeios = [
+    "Dinheiro" => 0.0,
+    "Pix" => 0.0,
+    "Cartão Crédito" => 0.0,
+    "Cartão Débito" => 0.0,
+    "Outro" => 0.0
+];
 
-// 4. Query Despesas
-$sqlDesp = "SELECT id, horario AS data, descricao, categoria, valor, formapagamento, status, 'despesa' AS tipo
-            FROM despesas
-            WHERE horario >= '$dataInicio' AND horario <= '$dataFim'";
-$resDesp = $conexao->query($sqlDesp);
-if ($resDesp) {
-    while ($row = $resDesp->fetch_assoc()) {
-        $row['formapagamento'] = strtolower($row['formapagamento']);
-        $movimentacoes[] = $row;
+$sqlLocacoes = "SELECT r.horafim, r.pagodinheiro, r.pagopix, r.pagocartao, r.numquarto, 
+                       COALESCE(vc.valorcredito, 0) as valorcredito, COALESCE(vc.valordebito, 0) as valordebito 
+                FROM registralocado r 
+                LEFT JOIN valorcartao vc ON r.idlocacao = vc.idlocacao 
+                WHERE r.horafim >= '$dataInicio' AND r.horafim <= '$dataFim' AND r.valorquarto IS NOT NULL 
+                ORDER BY r.horafim";
+$resLoc = $conexao->query($sqlLocacoes);
+if ($resLoc) {
+    while ($row = $resLoc->fetch_assoc()) {
+        $pgDinheiro = (float)$row['pagodinheiro'];
+        $pgPix = (float)$row['pagopix'];
+        $pgCartao = (float)$row['pagocartao'];
+        $valCred = (float)$row['valorcredito'];
+        $valDeb = (float)$row['valordebito'];
+
+        if ($pgCartao > 0 && $valCred == 0 && $valDeb == 0) {
+            $valCred = $pgCartao; // Fallback
+        }
+
+        $total = $pgDinheiro + $pgPix + $pgCartao;
+        $faturamentoTotal += $total;
+        $faturamentoMeios["Dinheiro"] += $pgDinheiro;
+        $faturamentoMeios["Pix"] += $pgPix;
+        $faturamentoMeios["Cartão Crédito"] += $valCred;
+        $faturamentoMeios["Cartão Débito"] += $valDeb;
     }
 }
 
-// 5. Query Retiradas/Sangrias (Tratadas como Despesa)
-$sqlRet = "SELECT id, horario AS data, justificativa AS descricao, 'Retirada/Sangria' AS categoria, valor, 'dinheiro' AS formapagamento, 'pago' AS status, 'despesa' AS tipo
-           FROM retiradas_caixa
-           WHERE horario >= '$dataInicio' AND horario <= '$dataFim'";
-$resRet = $conexao->query($sqlRet);
+// 2. Consultar Vendas Avulsas (Faturamento)
+$sqlVendas = "SELECT valortotal, formapagamento FROM vendas_avulsas 
+              WHERE horario >= '$dataInicio' AND horario <= '$dataFim' AND tipo != 'adiantamento'";
+$resVendas = $conexao->query($sqlVendas);
+if ($resVendas) {
+    while ($row = $resVendas->fetch_assoc()) {
+        $total = (float)$row['valortotal'];
+        $pgto = strtolower($row['formapagamento']);
+
+        $faturamentoTotal += $total;
+        if ($pgto === "dinheiro") {
+            $faturamentoMeios["Dinheiro"] += $total;
+        } elseif ($pgto === "pix") {
+            $faturamentoMeios["Pix"] += $total;
+        } elseif ($pgto === "credito" || $pgto === "cartao") {
+            $faturamentoMeios["Cartão Crédito"] += $total;
+        } elseif ($pgto === "debito") {
+            $faturamentoMeios["Cartão Débito"] += $total;
+        } else {
+            $faturamentoMeios["Outro"] += $total;
+        }
+    }
+}
+
+// Calcular Taxas Administrativas como despesa
+$totalDespesasVal = 0.0;
+$despesasCategorias = [];
+
+$totCred = $faturamentoMeios["Cartão Crédito"];
+$totDeb = $faturamentoMeios["Cartão Débito"];
+$totPix = $faturamentoMeios["Pix"];
+
+$valorTaxasCalculado = ($totCred * $taxaCredito / 100.0) + ($totDeb * $taxaDebito / 100.0) + ($totPix * $taxaPix / 100.0);
+if ($valorTaxasCalculado > 0) {
+    $totalDespesasVal += $valorTaxasCalculado;
+    $despesasCategorias["Taxas Administrativas (Cartões/Pix)"] = $valorTaxasCalculado;
+}
+
+// 3. Consultar Retiradas/Sangrias (Despesa)
+$retiradas = [];
+$sqlRetiradas = "SELECT id, horario, valor, quem, justificativa FROM retiradas_caixa 
+                 WHERE horario >= '$dataInicio' AND horario <= '$dataFim' ORDER BY horario";
+$resRet = $conexao->query($sqlRetiradas);
 if ($resRet) {
     while ($row = $resRet->fetch_assoc()) {
-        $movimentacoes[] = $row;
+        $id = (int)$row['id'];
+        $total = (float)$row['valor'];
+        $totalDespesasVal += $total;
+
+        if (!isset($despesasCategorias["Retiradas/Sangrias"])) {
+            $despesasCategorias["Retiradas/Sangrias"] = 0.0;
+        }
+        $despesasCategorias["Retiradas/Sangrias"] += $total;
+
+        $retiradas[] = [
+            'id' => $id,
+            'data' => $row['horario'],
+            'tipo' => 'Retirada Caixa',
+            'descricao' => 'Quem: ' . $row['quem'] . ' - ' . $row['justificativa'],
+            'categoria' => 'Retirada/Sangria',
+            'valor' => $total,
+            'formapagamento' => 'DINHEIRO',
+            'status' => 'Pago',
+            'bloqueado' => true
+        ];
     }
 }
 
-// Ordenar todas as movimentações por data
-usort($movimentacoes, function ($a, $b) {
+// 4. Consultar Despesas (Despesa)
+$despesasExibir = [];
+$sqlDespesas = "SELECT id, horario, valor, descricao, categoria, formapagamento, status FROM despesas 
+                WHERE horario >= '$dataInicio' AND horario <= '$dataFim' ORDER BY horario";
+$resDesp = $conexao->query($sqlDespesas);
+if ($resDesp) {
+    while ($row = $resDesp->fetch_assoc()) {
+        $id = (int)$row['id'];
+        $total = (float)$row['valor'];
+        $cat = $row['categoria'];
+        $totalDespesasVal += $total;
+
+        if (!isset($despesasCategorias[$cat])) {
+            $despesasCategorias[$cat] = 0.0;
+        }
+        $despesasCategorias[$cat] += $total;
+
+        $despesasExibir[] = [
+            'id' => $id,
+            'data' => $row['horario'],
+            'tipo' => 'Despesa (' . $cat . ')',
+            'descricao' => $row['descricao'],
+            'categoria' => $cat,
+            'valor' => $total,
+            'formapagamento' => strtoupper($row['formapagamento']),
+            'status' => ucfirst($row['status']),
+            'bloqueado' => false
+        ];
+    }
+}
+
+// Mesclar despesas e retiradas na tabela detalhada (ordenada por data)
+$todosLancamentos = array_merge($despesasExibir, $retiradas);
+usort($todosLancamentos, function ($a, $b) {
     return strcmp($a['data'], $b['data']);
 });
 
-// Totais
-$totalReceitas = 0;
-$totalDespesas = 0;
+// 5. Consultar Adiantamentos de Funcionários
+$adiantamentos = [];
+$totalAdiantamentosVal = 0.0;
+$sqlAdiantamentos = "SELECT horario, descricao, quantidade, valorunidade, valortotal FROM vendas_avulsas 
+                     WHERE tipo = 'adiantamento' AND horario >= '$dataInicio' AND horario <= '$dataFim' ORDER BY horario";
+$resAd = $conexao->query($sqlAdiantamentos);
+if ($resAd) {
+    while ($row = $resAd->fetch_assoc()) {
+        $desc = $row['descricao'];
+        $qtd = (int)$row['quantidade'];
+        $valUnit = (float)$row['valorunidade'];
+        $total = (float)$row['valortotal'];
+        $totalAdiantamentosVal += $total;
 
-foreach ($movimentacoes as $mov) {
-    if ($mov['tipo'] === 'receita') {
-        $totalReceitas += (float)$mov['valor'];
-    } else {
-        $totalDespesas += (float)$mov['valor'];
+        $func = "Desconhecido";
+        if (strpos($desc, "[Funcionário: ") !== false && strpos($desc, "]") !== false) {
+            $start = strpos($desc, "[Funcionário: ") + 14;
+            $end = strpos($desc, "]", $start);
+            $func = substr($desc, $start, $end - $start);
+        }
+
+        $adiantamentos[] = [
+            'data' => $row['horario'],
+            'funcionario' => $func,
+            'descricao' => $desc,
+            'quantidade' => $qtd,
+            'valorunidade' => $valUnit,
+            'valortotal' => $total
+        ];
     }
 }
 
-$saldoLiquido = $totalReceitas - $totalDespesas;
-
-// Filtrar apenas despesas para exibição na tabela detalhada (assim como no Java)
-$despesasExibir = array_filter($movimentacoes, function ($mov) {
-    return $mov['tipo'] === 'despesa';
-});
+$saldoLiquido = $faturamentoTotal - $totalDespesasVal;
 
 $conexao->close();
 ?>
@@ -320,7 +459,7 @@ $conexao->close();
         }
         
         .main-container {
-            max-width: 1100px;
+            max-width: 1200px;
             margin-top: 30px;
         }
 
@@ -437,6 +576,58 @@ $conexao->close();
             border-top: 1px solid rgba(0, 0, 0, 0.08);
         }
 
+        /* Navigation Tabs Customization */
+        .nav-tabs-premium {
+            border-bottom: 2px solid #e2e8f0;
+            margin-bottom: 20px;
+        }
+
+        .nav-tabs-premium .nav-link {
+            border: none;
+            color: #64748b;
+            font-weight: 600;
+            padding: 12px 20px;
+            position: relative;
+            background: transparent;
+            transition: color 0.2s ease;
+        }
+
+        .nav-tabs-premium .nav-link:hover {
+            color: #1e3a8a;
+        }
+
+        .nav-tabs-premium .nav-link.active {
+            color: #2563eb;
+            background: transparent;
+        }
+
+        .nav-tabs-premium .nav-link.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background-color: #2563eb;
+            border-radius: 3px;
+        }
+
+        .dre-header-row {
+            background-color: #f1f5f9 !important;
+            font-weight: 700;
+            color: #1e293b;
+        }
+
+        .dre-total-row {
+            font-weight: 700;
+            background-color: #f8fafc !important;
+            border-top: 2px solid #cbd5e1;
+        }
+
+        .dre-indent {
+            padding-left: 25px !important;
+        }
+
         /* Print formatting */
         @media print {
             body {
@@ -444,7 +635,7 @@ $conexao->close();
                 color: black !important;
                 margin-bottom: 0;
             }
-            .fixed-bottom, .navbar, .glass-panel, .btn-action, .btn-premium, .modal, .toast {
+            .fixed-bottom, .navbar, .glass-panel, .btn-action, .btn-premium, .modal, .toast, .nav-tabs-premium {
                 display: none !important;
             }
             .main-container {
@@ -485,7 +676,7 @@ $conexao->close();
                 <p class="text-muted mb-0">Gestão e acompanhamento das finanças de <?= ucfirst($filial) ?></p>
             </div>
             <div>
-                <button type="button" class="btn btn-premium d-inline-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#modalLancar">
+                <button type="button" class="btn btn-premium d-inline-flex align-items-center gap-2 btn-action" data-bs-toggle="modal" data-bs-target="#modalLancar">
                     <i class="bi bi-plus-circle-fill"></i> Lançar Despesa
                 </button>
                 <button onclick="window.print()" class="btn btn-outline-secondary ms-2 d-inline-flex align-items-center gap-2 btn-action">
@@ -508,8 +699,8 @@ $conexao->close();
             <div class="col-md-4">
                 <div class="metric-card d-flex align-items-center justify-content-between">
                     <div>
-                        <span class="text-muted d-block text-uppercase fw-semibold" style="font-size: 0.8rem; letter-spacing: 1px;">Total Receitas</span>
-                        <h3 class="fw-bold mt-1 text-success">R$ <?= number_format($totalReceitas, 2, ',', '.') ?></h3>
+                        <span class="text-muted d-block text-uppercase fw-semibold" style="font-size: 0.8rem; letter-spacing: 1px;">Total Faturamento</span>
+                        <h3 class="fw-bold mt-1 text-success">R$ <?= number_format($faturamentoTotal, 2, ',', '.') ?></h3>
                     </div>
                     <i class="bi bi-arrow-up-circle-fill text-success fs-1 opacity-75"></i>
                 </div>
@@ -518,7 +709,7 @@ $conexao->close();
                 <div class="metric-card d-flex align-items-center justify-content-between">
                     <div>
                         <span class="text-muted d-block text-uppercase fw-semibold" style="font-size: 0.8rem; letter-spacing: 1px;">Total Despesas</span>
-                        <h3 class="fw-bold mt-1 text-danger">R$ <?= number_format($totalDespesas, 2, ',', '.') ?></h3>
+                        <h3 class="fw-bold mt-1 text-danger">R$ <?= number_format($totalDespesasVal, 2, ',', '.') ?></h3>
                     </div>
                     <i class="bi bi-arrow-down-circle-fill text-danger fs-1 opacity-75"></i>
                 </div>
@@ -526,7 +717,7 @@ $conexao->close();
             <div class="col-md-4">
                 <div class="metric-card d-flex align-items-center justify-content-between">
                     <div>
-                        <span class="text-muted d-block text-uppercase fw-semibold" style="font-size: 0.8rem; letter-spacing: 1px;">Saldo Líquido</span>
+                        <span class="text-muted d-block text-uppercase fw-semibold" style="font-size: 0.8rem; letter-spacing: 1px;">Resultado Líquido</span>
                         <h3 class="fw-bold mt-1 <?= $saldoLiquido >= 0 ? 'text-primary' : 'text-danger' ?>">
                             R$ <?= number_format($saldoLiquido, 2, ',', '.') ?>
                         </h3>
@@ -539,7 +730,6 @@ $conexao->close();
         <!-- Filtro Panel -->
         <div class="glass-panel mb-4">
             <form method="post" action="FluxoCaixa.php" class="row g-3 align-items-end">
-                <input type="hidden" name="action" value="filtrar">
                 <div class="col-md-4">
                     <label for="period" class="form-label fw-bold text-muted">Período</label>
                     <select name="period" id="period" class="form-select">
@@ -557,13 +747,13 @@ $conexao->close();
                     <div class="col-sm-6">
                         <label for="data_inicio" class="form-label fw-bold text-muted">Início</label>
                         <input type="text" id="data_inicio" name="data_inicio" class="form-control"
-                            value="<?= ($selectedPeriod == 'custom' && isset($_POST['data_inicio']) ? htmlspecialchars($_POST['data_inicio']) : ''); ?>"
+                            value="<?= ($selectedPeriod == 'custom' && isset($_POST['data_inicio']) ? htmlspecialchars($_POST['data_inicio']) : (isset($_GET['data_inicio']) ? htmlspecialchars($_GET['data_inicio']) : '')); ?>"
                             placeholder="dd/mm/aaaa">
                     </div>
                     <div class="col-sm-6">
                         <label for="data_fim" class="form-label fw-bold text-muted">Fim</label>
                         <input type="text" id="data_fim" name="data_fim" class="form-control"
-                            value="<?= ($selectedPeriod == 'custom' && isset($_POST['data_fim']) ? htmlspecialchars($_POST['data_fim']) : ''); ?>"
+                            value="<?= ($selectedPeriod == 'custom' && isset($_POST['data_fim']) ? htmlspecialchars($_POST['data_fim']) : (isset($_GET['data_fim']) ? htmlspecialchars($_GET['data_fim']) : '')); ?>"
                             placeholder="dd/mm/aaaa">
                     </div>
                 </div>
@@ -574,63 +764,245 @@ $conexao->close();
             </form>
         </div>
 
-        <!-- Tabela de Movimentações -->
-        <div class="table-responsive custom-table shadow-sm">
-            <table class="table table-hover mb-0">
-                <thead>
-                    <tr>
-                        <th>Data/Hora</th>
-                        <th>Tipo</th>
-                        <th>Descrição</th>
-                        <th>Categoria / Centro de Custo</th>
-                        <th>Valor</th>
-                        <th>Forma Pgto</th>
-                        <th>Status</th>
-                        <th class="text-end btn-action">Ações</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (empty($despesasExibir)): ?>
-                        <tr>
-                            <td colspan="8" class="text-center py-4 text-muted">Nenhuma despesa ou retirada encontrada para o período selecionado.</td>
-                        </tr>
-                    <?php else: ?>
-                        <?php foreach ($despesasExibir as $mov): ?>
+        <!-- Abas do Fluxo de Caixa (Igual ao Java Dialog) -->
+        <ul class="nav nav-tabs nav-tabs-premium" id="fluxoTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="resumo-tab" data-bs-toggle="tab" data-bs-target="#resumo-pane" type="button" role="tab" aria-controls="resumo-pane" aria-selected="true">
+                    Resumo Gerencial (DRE)
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="lancamentos-tab" data-bs-toggle="tab" data-bs-target="#lancamentos-pane" type="button" role="tab" aria-controls="lancamentos-pane" aria-selected="false">
+                    Lançamentos de Despesas
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="adiantamentos-tab" data-bs-toggle="tab" data-bs-target="#adiantamentos-pane" type="button" role="tab" aria-controls="adiantamentos-pane" aria-selected="false">
+                    Adiantamentos de Funcionários
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="taxas-tab" data-bs-toggle="tab" data-bs-target="#taxas-pane" type="button" role="tab" aria-controls="taxas-pane" aria-selected="false">
+                    Taxas Administrativas
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content" id="fluxoTabsContent">
+            <!-- ABA 1: RESUMO GERENCIAL DRE -->
+            <div class="tab-pane fade show active" id="resumo-pane" role="tabpanel" aria-labelledby="resumo-tab" tabindex="0">
+                <div class="table-responsive custom-table shadow-sm">
+                    <table class="table mb-0">
+                        <thead>
                             <tr>
-                                <td><?= date('d/m/Y H:i', strtotime($mov['data'])) ?></td>
-                                <td>
-                                    <span class="badge rounded-pill badge-despesa">
-                                        <?= $mov['categoria'] === 'Retirada/Sangria' ? 'Retirada' : 'Despesa' ?>
-                                    </span>
+                                <th>Categoria / Centro de Custo</th>
+                                <th class="text-end">Valor (R$)</th>
+                                <th class="text-end">Participação (%)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- SEÇÃO RECEITAS -->
+                            <tr class="dre-header-row">
+                                <td colspan="3">FATURAMENTO (RECEITAS)</td>
+                            </tr>
+                            <?php foreach ($faturamentoMeios as $meio => $valor): ?>
+                                <?php if ($valor > 0): ?>
+                                    <?php $perc = $faturamentoTotal > 0 ? ($valor / $faturamentoTotal) * 100.0 : 0.0; ?>
+                                    <tr>
+                                        <td class="dre-indent"><?= strtoupper($meio) ?></td>
+                                        <td class="text-end fw-semibold">R$ <?= number_format($valor, 2, ',', '.') ?></td>
+                                        <td class="text-end text-muted"><?= number_format($perc, 1, ',', '.') ?> %</td>
+                                    </tr>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                            <tr class="dre-total-row">
+                                <td>TOTAL FATURAMENTO</td>
+                                <td class="text-end text-success">R$ <?= number_format($faturamentoTotal, 2, ',', '.') ?></td>
+                                <td class="text-end">100,0 %</td>
+                            </tr>
+
+                            <!-- ESPAÇADOR -->
+                            <tr><td colspan="3" style="height: 15px; border: none; background: transparent;"></td></tr>
+
+                            <!-- SEÇÃO DESPESAS -->
+                            <tr class="dre-header-row">
+                                <td colspan="3">DESPESAS POR CENTRO DE CUSTO</td>
+                            </tr>
+                            <?php if (empty($despesasCategorias)): ?>
+                                <tr>
+                                    <td colspan="3" class="text-center py-3 text-muted">Nenhuma despesa ou taxa gerada no período.</td>
+                                </tr>
+                            <?php else: ?>
+                                <?php foreach ($despesasCategorias as $cat => $valor): ?>
+                                    <?php $perc = $faturamentoTotal > 0 ? ($valor / $faturamentoTotal) * 100.0 : 0.0; ?>
+                                    <tr>
+                                        <td class="dre-indent"><?= strtoupper($cat) ?></td>
+                                        <td class="text-end fw-semibold">- R$ <?= number_format($valor, 2, ',', '.') ?></td>
+                                        <td class="text-end text-danger"><?= number_format($perc, 1, ',', '.') ?> %</td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                            <tr class="dre-total-row">
+                                <td>TOTAL DESPESAS</td>
+                                <td class="text-end text-danger">- R$ <?= number_format($totalDespesasVal, 2, ',', '.') ?></td>
+                                <td class="text-end text-danger"><?= number_format($faturamentoTotal > 0 ? ($totalDespesasVal / $faturamentoTotal) * 100.0 : 0.0, 1, ',', '.') ?> %</td>
+                            </tr>
+
+                            <!-- ESPAÇADOR -->
+                            <tr><td colspan="3" style="height: 15px; border: none; background: transparent;"></td></tr>
+
+                            <!-- RESULTADO LIQUIDO -->
+                            <tr class="dre-header-row">
+                                <td>RESULTADO GERAL DO PERÍODO</td>
+                                <td class="text-end <?= $saldoLiquido >= 0 ? 'text-success' : 'text-danger' ?>">
+                                    R$ <?= number_format($saldoLiquido, 2, ',', '.') ?>
                                 </td>
-                                <td><?= htmlspecialchars($mov['descricao']) ?></td>
-                                <td><?= htmlspecialchars($mov['categoria']) ?></td>
-                                <td class="fw-bold text-danger">
-                                    - R$ <?= number_format($mov['valor'], 2, ',', '.') ?>
-                                </td>
-                                <td><span class="text-capitalize"><?= htmlspecialchars($mov['formapagamento']) ?></span></td>
-                                <td>
-                                    <span class="badge text-bg-<?= $mov['status'] === 'pago' ? 'success' : 'secondary' ?>">
-                                        <?= htmlspecialchars($mov['status']) ?>
-                                    </span>
-                                </td>
-                                <td class="text-end btn-action">
-                                    <?php if ($mov['categoria'] !== 'Retirada/Sangria'): ?>
-                                        <button onclick="abrirModalEdicao(<?= htmlspecialchars(json_encode($mov)) ?>)" class="btn btn-sm btn-outline-warning me-1">
-                                            <i class="bi bi-pencil-square"></i>
-                                        </button>
-                                        <button onclick="confirmarExclusao(<?= $mov['id'] ?>, '<?= htmlspecialchars($mov['descricao']) ?>')" class="btn btn-sm btn-outline-danger">
-                                            <i class="bi bi-trash-fill"></i>
-                                        </button>
-                                    <?php else: ?>
-                                        <span class="text-muted" style="font-size: 0.8rem;">Bloqueado</span>
-                                    <?php endif; ?>
+                                <td class="text-end <?= $saldoLiquido >= 0 ? 'text-success' : 'text-danger' ?>">
+                                    <?= number_format($faturamentoTotal > 0 ? ($saldoLiquido / $faturamentoTotal) * 100.0 : 0.0, 1, ',', '.') ?> %
                                 </td>
                             </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ABA 2: LANÇAMENTOS DE DESPESAS -->
+            <div class="tab-pane fade" id="lancamentos-pane" role="tabpanel" aria-labelledby="lancamentos-tab" tabindex="0">
+                <div class="table-responsive custom-table shadow-sm">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Data/Hora</th>
+                                <th>Tipo</th>
+                                <th>Descrição</th>
+                                <th>Categoria / Centro de Custo</th>
+                                <th>Valor</th>
+                                <th>Forma Pgto</th>
+                                <th>Status</th>
+                                <th class="text-end btn-action">Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($todosLancamentos)): ?>
+                                <tr>
+                                    <td colspan="8" class="text-center py-4 text-muted">Nenhum lançamento de despesa ou retirada encontrado para o período selecionado.</td>
+                                </tr>
+                            <?php else: ?>
+                                <?php foreach ($todosLancamentos as $mov): ?>
+                                    <tr>
+                                        <td><?= date('d/m/Y H:i', strtotime($mov['data'])) ?></td>
+                                        <td>
+                                            <span class="badge rounded-pill <?= $mov['categoria'] === 'Retirada/Sangria' ? 'badge-despesa' : 'badge-despesa' ?>">
+                                                <?= $mov['categoria'] === 'Retirada/Sangria' ? 'Retirada' : 'Despesa' ?>
+                                            </span>
+                                        </td>
+                                        <td><?= htmlspecialchars($mov['descricao']) ?></td>
+                                        <td><?= htmlspecialchars($mov['categoria']) ?></td>
+                                        <td class="fw-bold text-danger">
+                                            - R$ <?= number_format($mov['valor'], 2, ',', '.') ?>
+                                        </td>
+                                        <td><span class="text-uppercase"><?= htmlspecialchars($mov['formapagamento']) ?></span></td>
+                                        <td>
+                                            <span class="badge text-bg-<?= strtolower($mov['status']) === 'pago' ? 'success' : 'secondary' ?>">
+                                                <?= htmlspecialchars($mov['status']) ?>
+                                            </span>
+                                        </td>
+                                        <td class="text-end btn-action">
+                                            <?php if (!$mov['bloqueado']): ?>
+                                                <button onclick="abrirModalEdicao(<?= htmlspecialchars(json_encode($mov)) ?>)" class="btn btn-sm btn-outline-warning me-1">
+                                                    <i class="bi bi-pencil-square"></i>
+                                                </button>
+                                                <button onclick="confirmarExclusao(<?= $mov['id'] ?>, '<?= htmlspecialchars($mov['descricao']) ?>')" class="btn btn-sm btn-outline-danger">
+                                                    <i class="bi bi-trash-fill"></i>
+                                                </button>
+                                            <?php else: ?>
+                                                <span class="text-muted" style="font-size: 0.8rem;">Bloqueado</span>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ABA 3: ADIANTAMENTOS DE FUNCIONÁRIOS -->
+            <div class="tab-pane fade" id="adiantamentos-pane" role="tabpanel" aria-labelledby="adiantamentos-tab" tabindex="0">
+                <div class="table-responsive custom-table shadow-sm mb-3">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Data/Hora</th>
+                                <th>Funcionário</th>
+                                <th>Produto/Descrição</th>
+                                <th class="text-center">Quantidade</th>
+                                <th class="text-end">Valor Unit.</th>
+                                <th class="text-end">Valor Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($adiantamentos)): ?>
+                                <tr>
+                                    <td colspan="6" class="text-center py-4 text-muted">Nenhum adiantamento de funcionário no período.</td>
+                                </tr>
+                            <?php else: ?>
+                                <?php foreach ($adiantamentos as $ad): ?>
+                                    <tr>
+                                        <td><?= date('d/m/Y H:i', strtotime($ad['data'])) ?></td>
+                                        <td class="fw-bold"><?= htmlspecialchars($ad['funcionario']) ?></td>
+                                        <td><?= htmlspecialchars($ad['descricao']) ?></td>
+                                        <td class="text-center"><?= $ad['quantidade'] ?></td>
+                                        <td class="text-end">R$ <?= number_format($ad['valorunidade'], 2, ',', '.') ?></td>
+                                        <td class="text-end fw-bold">R$ <?= number_format($ad['valortotal'], 2, ',', '.') ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="glass-panel text-end py-3">
+                    <h5 class="fw-bold mb-0 text-primary">Total Adiantamentos no Período: R$ <?= number_format($totalAdiantamentosVal, 2, ',', '.') ?></h5>
+                </div>
+            </div>
+
+            <!-- ABA 4: TAXAS ADMINISTRATIVAS -->
+            <div class="tab-pane fade" id="taxas-pane" role="tabpanel" aria-labelledby="taxas-tab" tabindex="0">
+                <div class="glass-panel">
+                    <form method="post" action="FluxoCaixa.php">
+                        <input type="hidden" name="action" value="salvar_taxas">
+                        <h5 class="fw-bold mb-4 text-dark"><i class="bi bi-percent text-primary"></i> Configuração de Taxas Administrativas (%)</h5>
+                        
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label for="taxa_credito" class="form-label fw-semibold text-muted">Taxa Crédito (%)</label>
+                                <div class="input-group">
+                                    <input type="text" name="taxa_credito" id="taxa_credito" class="form-control" value="<?= number_format($taxaCredito, 2, ',', '.') ?>" required>
+                                    <span class="input-group-text">%</span>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="taxa_debito" class="form-label fw-semibold text-muted">Taxa Débito (%)</label>
+                                <div class="input-group">
+                                    <input type="text" name="taxa_debito" id="taxa_debito" class="form-control" value="<?= number_format($taxaDebito, 2, ',', '.') ?>" required>
+                                    <span class="input-group-text">%</span>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="taxa_pix" class="form-label fw-semibold text-muted">Taxa Pix (%)</label>
+                                <div class="input-group">
+                                    <input type="text" name="taxa_pix" id="taxa_pix" class="form-control" value="<?= number_format($taxaPix, 2, ',', '.') ?>" required>
+                                    <span class="input-group-text">%</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 text-end">
+                            <button type="submit" class="btn btn-premium px-4"><i class="bi bi-save2-fill"></i> Salvar Taxas</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
         </div>
 
     </div>
@@ -665,10 +1037,14 @@ $conexao->close();
                                 <option value="Outros">Outros</option>
                             </select>
                         </div>
+                        <div class="mb-3">
+                            <label for="horario" class="form-label text-muted">Data/Hora do Lançamento <span class="text-danger">*</span></label>
+                            <input type="datetime-local" name="horario" id="horario" class="form-control" value="<?= date('Y-m-d\TH:i') ?>" required>
+                        </div>
                         <div class="row mb-3">
                             <div class="col-6">
                                 <label for="valor" class="form-label text-muted">Valor (R$) <span class="text-danger">*</span></label>
-                                <input type="text" name="valor" id="valor" class="form-control" placeholder="0.00" required>
+                                <input type="text" name="valor" id="valor" class="form-control" placeholder="0,00" required>
                             </div>
                             <div class="col-6">
                                 <label for="formapagamento" class="form-label text-muted">Forma de Pagamento</label>
@@ -727,6 +1103,10 @@ $conexao->close();
                                 <option value="Salários / Comissões">Salários / Comissões</option>
                                 <option value="Outros">Outros</option>
                             </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit_horario" class="form-label text-muted">Data/Hora do Lançamento <span class="text-danger">*</span></label>
+                            <input type="datetime-local" name="horario" id="edit_horario" class="form-control" required>
                         </div>
                         <div class="row mb-3">
                             <div class="col-6">
@@ -817,9 +1197,14 @@ $conexao->close();
             $('#edit_id').val(mov.id);
             $('#edit_descricao').val(mov.descricao);
             $('#edit_categoria').val(mov.categoria);
-            $('#edit_valor').val(mov.valor);
-            $('#edit_formapagamento').val(mov.formapagamento);
-            $('#edit_status').val(mov.status);
+            // Formatar valor para ponto decimal nos inputs de edição
+            $('#edit_valor').val(parseFloat(mov.valor).toFixed(2));
+            $('#edit_formapagamento').val(mov.formapagamento.toLowerCase());
+            $('#edit_status').val(mov.status.toLowerCase());
+            if (mov.data) {
+                var dt = mov.data.replace(' ', 'T').substring(0, 16);
+                $('#edit_horario').val(dt);
+            }
             
             var editModal = new bootstrap.Modal(document.getElementById('modalEditar'));
             editModal.show();
