@@ -491,7 +491,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $stmtStatus->close();
 
             // Registra a limpeza no histórico
-            $stmtHist = $conexao->prepare("INSERT INTO registramanutencao (numquarto, horainicio, tipo) VALUES (?, NOW(), 'limpeza')");
+            $stmtHist = $conexao->prepare("INSERT INTO registralimpeza (numquarto, horaentrada) VALUES (?, NOW())");
             $stmtHist->bind_param("i", $quarto);
             $stmtHist->execute();
             $stmtHist->close();

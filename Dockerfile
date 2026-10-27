@@ -1,4 +1,7 @@
-FROM php:8.2-apache
+FROM php:8.2.35-apache
+
+# Mitigação de vulnerabilidade PHP2Shell / Upload progress
+RUN echo "session.upload_progress.enabled=0" > /usr/local/etc/php/conf.d/security.ini
 
 # Install mysqli extension and pdo_mysql
 RUN docker-php-ext-install mysqli pdo pdo_mysql && docker-php-ext-enable mysqli pdo_mysql

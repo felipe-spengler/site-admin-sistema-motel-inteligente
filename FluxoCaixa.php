@@ -62,16 +62,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["action"])) {
         }
         
         if (!empty($descricao) && !empty($categoria) && $valor > 0) {
-            $payload = json_encode([
+            $payloadData = [
                 "descricao" => $descricao,
                 "categoria" => $categoria,
                 "valor" => $valor,
                 "formapagamento" => $formapagamento,
                 "status" => $status,
                 "usuario" => $usuario,
-                "idcaixa" => 0, // Java vai preencher com o ID do caixa aberto local
-                "horario" => $horarioMysql
-            ]);
+                "idcaixa" => 0 // Java vai preencher com o ID do caixa aberto local
+            ];
+            if ($horarioMysql !== null) {
+                $payloadData["horario"] = $horarioMysql;
+            }
+            $payload = json_encode($payloadData);
             
             if (publicarComandoMqtt($filial, "lancar_despesa " . $payload)) {
                 header("Location: FluxoCaixa.php?sucesso=1");
@@ -101,16 +104,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["action"])) {
         }
         
         if ($id > 0 && !empty($descricao) && !empty($categoria) && $valor > 0) {
-            $payload = json_encode([
+            $payloadData = [
                 "id" => $id,
                 "descricao" => $descricao,
                 "categoria" => $categoria,
                 "valor" => $valor,
                 "formapagamento" => $formapagamento,
                 "status" => $status,
-                "idcaixa" => 0,
-                "horario" => $horarioMysql
-            ]);
+                "idcaixa" => 0
+            ];
+            if ($horarioMysql !== null) {
+                $payloadData["horario"] = $horarioMysql;
+            }
+            $payload = json_encode($payloadData);
             
             if (publicarComandoMqtt($filial, "editar_despesa " . $payload)) {
                 header("Location: FluxoCaixa.php?sucesso=2");
