@@ -44,6 +44,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["period"])) {
             $dataInicio = date('Y-m-01', strtotime('-1 month')) . ' 00:00:00';
             $dataFim = date('Y-m-t', strtotime('-1 month')) . ' 23:59:59';
             break;
+        case "this_year":
+            $dataInicio = date('Y-01-01') . ' 00:00:00';
+            $dataFim = date('Y-m-d') . ' 23:59:59';
+            break;
         case "custom":
             // Verifica se foram enviados dados de período personalizado
             if (isset($_POST["data_inicio"]) && isset($_POST["data_fim"])) {
@@ -312,7 +316,7 @@ function calcularMedias($conexao, $idCaixas)
 
     $sqlAvulsas = "SELECT formapagamento, tipo, SUM(valortotal) AS total 
                    FROM vendas_avulsas 
-                   WHERE idcaixa IN ($ids) 
+                   WHERE idcaixa IN ($ids) AND tipo != 'adiantamento'
                    GROUP BY formapagamento, tipo";
     $resultAvulsas = $conexao->query($sqlAvulsas);
     if ($resultAvulsas) {
@@ -477,6 +481,8 @@ function calcularMedias($conexao, $idCaixas)
                                 Este Mês</option>
                             <option value="last_month" <?php echo ($selectedPeriod == 'last_month' ? 'selected' : ''); ?>>
                                 Mês Passado</option>
+                            <option value="this_year" <?php echo ($selectedPeriod == 'this_year' ? 'selected' : ''); ?>>
+                                Anual (Este Ano)</option>
                             <option value="custom" <?php echo ($selectedPeriod == 'custom' ? 'selected' : ''); ?>>Definir
                                 um Período</option>
                         </select>
