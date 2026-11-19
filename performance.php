@@ -1,22 +1,32 @@
 <?php
-// Função para formatar a data no formato MySQL (Y-m-d H:i:s)
-function formatarData($data, $horaInicial = true)
-{
+date_default_timezone_set('America/Sao_Paulo');
+
+function formatarData($data, $horaInicial = true) {
     $partes = explode('/', $data);
-    if(count($partes) == 3){
+    if (count($partes) == 3) {
         $dia = $partes[0];
         $mes = $partes[1];
         $ano = $partes[2];
         $hora = $horaInicial ? '00:00:00' : '23:59:59';
         return sprintf('%04d-%02d-%02d %s', $ano, $mes, $dia, $hora);
     }
-    return date('Y-m-d H:i:s');
+    return date('Y-m-d') . ($horaInicial ? ' 00:00:00' : ' 23:59:59');
 }
 
-$selectedPeriod = 'this_month';
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["period"])) {
-    $selectedPeriod = $_POST["period"];
+function resolverPeriodo($selectedPeriod, $customInicio = '', $customFim = '') {
     switch ($selectedPeriod) {
+        case "7":
+            $dataInicio = date('Y-m-d', strtotime('-7 days')) . ' 00:00:00';
+            $dataFim = date('Y-m-d') . ' 23:59:59';
+            break;
+        case "15":
+            $dataInicio = date('Y-m-d', strtotime('-15 days')) . ' 00:00:00';
+            $dataFim = date('Y-m-d') . ' 23:59:59';
+            break;
+        case "30":
+            $dataInicio = date('Y-m-d', strtotime('-30 days')) . ' 00:00:00';
+            $dataFim = date('Y-m-d') . ' 23:59:59';
+            break;
         case "this_quarter":
             $mesAtual = date('n');
             $trimestreAtual = ceil($mesAtual / 3);
@@ -39,31 +49,26 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["period"])) {
             $dataInicio = date('Y-01-01', strtotime('-1 year')) . ' 00:00:00';
             $dataFim = date('Y-12-31', strtotime('-1 year')) . ' 23:59:59';
             break;
-        case "this_month":
-            $dataInicio = date('Y-m-01') . ' 00:00:00';
-            $dataFim = date('Y-m-d') . ' 23:59:59';
-            break;
         case "last_month":
             $dataInicio = date('Y-m-01', strtotime('-1 month')) . ' 00:00:00';
             $dataFim = date('Y-m-t', strtotime('-1 month')) . ' 23:59:59';
             break;
         case "custom":
-            if (isset($_POST["data_inicio"]) && isset($_POST["data_fim"])) {
-                $dataInicio = formatarData($_POST["data_inicio"], true);
-                $dataFim = formatarData($_POST["data_fim"], false);
+            if (!empty($customInicio) && !empty($customFim)) {
+                $dataInicio = formatarData($customInicio, true);
+                $dataFim = formatarData($customFim, false);
             } else {
                 $dataInicio = date('Y-m-01') . ' 00:00:00';
                 $dataFim = date('Y-m-d') . ' 23:59:59';
             }
             break;
+        case "this_month":
         default:
             $dataInicio = date('Y-m-01') . ' 00:00:00';
             $dataFim = date('Y-m-d') . ' 23:59:59';
             break;
     }
-} else {
-    $dataInicio = date('Y-m-01') . ' 00:00:00';
-    $dataFim = date('Y-m-d') . ' 23:59:59';
+    return [$dataInicio, $dataFim];
 }
 
 include 'verificar_acesso.php';
@@ -100,321 +105,187 @@ if ($conexao === null) {
     die("Erro na conexão com o banco de dados.");
 }
 
-// ====== PARÂMETROS DO NEGÓCIO E ATUALIZAÇÃO ======
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["update_gestao"])) {
-    $tipoAluguel = $_POST['tipo_aluguel'];
-    $valorAluguel = (float)str_replace(',', '.', $_POST['valor_aluguel']);
-    $custoLimpeza = (float)str_replace(',', '.', $_POST['custo_limpeza']);
-    $despesasFixas = (float)str_replace(',', '.', $_POST['despesas_fixas']);
-    
-    $upSQL = "UPDATE dados_gestao SET tipo_aluguel = ?, valor_aluguel = ?, custo_variavel_limpeza = ?, despesas_fixas_mensais = ? WHERE id = 1";
-    $stmt = $conexao->prepare($upSQL);
-    if($stmt) {
-        $stmt->bind_param("sddd", $tipoAluguel, $valorAluguel, $custoLimpeza, $despesasFixas);
-        $stmt->execute();
-        if ($stmt->affected_rows === 0) {
-            $conexao->query("INSERT IGNORE INTO dados_gestao (id, tipo_aluguel, valor_aluguel, custo_variavel_limpeza, despesas_fixas_mensais) VALUES (1, '$tipoAluguel', $valorAluguel, $custoLimpeza, $despesasFixas)");
-        }
-        $stmt->close();
+function carregarLocacoesPeriodo($conexao, $inicio, $fim, $quartosMap) {
+    $sqlCaixas = "SELECT id FROM caixa WHERE horaabre >= ? AND horaabre <= ?";
+    $stmtC = $conexao->prepare($sqlCaixas);
+    $stmtC->bind_param("ss", $inicio, $fim);
+    $stmtC->execute();
+    $resC = $stmtC->get_result();
+    $ids = [];
+    while ($rowC = $resC->fetch_assoc()) {
+        $ids[] = (int)$rowC['id'];
     }
-}
+    $stmtC->close();
 
-$resGestao = $conexao->query("SELECT * FROM dados_gestao ORDER BY id LIMIT 1");
-if ($resGestao && $resGestao->num_rows > 0) {
-    $rowGestao = $resGestao->fetch_assoc();
-} else {
-    // Cria caso não exista
-    $conexao->query("INSERT INTO dados_gestao (id, tipo_aluguel, valor_aluguel, custo_variavel_limpeza, despesas_fixas_mensais) VALUES (1, 'porcentagem', 20.00, 0.00, 10775.00)");
-    $rowGestao = [
-        'tipo_aluguel' => 'porcentagem',
-        'valor_aluguel' => 20.00,
-        'custo_variavel_limpeza' => 0.00,
-        'despesas_fixas_mensais' => 10775.00
+    if (empty($ids)) {
+        return ['locacoes' => [], 'vendas_avulsas' => 0.0];
+    }
+
+    $idsStr = implode(',', $ids);
+
+    // Vendas avulsas no período (exceto adiantamentos)
+    $vendasAvulsas = 0.0;
+    $resAv = $conexao->query("SELECT COALESCE(SUM(valortotal), 0) AS total FROM vendas_avulsas WHERE idcaixa IN ($idsStr) AND tipo != 'adiantamento'");
+    if ($resAv && $rowAv = $resAv->fetch_assoc()) {
+        $vendasAvulsas = (float)$rowAv['total'];
+    }
+
+    // Locações detalhadas com data/hora de início e fim para permitir filtro instantâneo no JS
+    $sqlLoc = "
+        SELECT 
+            r.idlocacao,
+            r.numquarto,
+            r.horainicio,
+            r.horafim,
+            COALESCE(r.valorquarto, 0) AS valorquarto,
+            COALESCE(r.valorconsumo, 0) AS valorconsumo,
+            COALESCE(r.pagodinheiro, 0) + COALESCE(r.pagopix, 0) + COALESCE(r.pagocartao, 0) AS total_pago,
+            r.periodo_locado
+        FROM registralocado r
+        WHERE r.idcaixaatual IN ($idsStr)
+        ORDER BY r.horainicio ASC
+    ";
+    $resLoc = $conexao->query($sqlLoc);
+    $locacoes = [];
+    if ($resLoc) {
+        while ($row = $resLoc->fetch_assoc()) {
+            $numQ = (int)$row['numquarto'];
+            $tipoQ = $quartosMap[$numQ] ?? 'Padrão';
+            $iniTs = strtotime($row['horainicio']);
+            $fimTs = !empty($row['horafim']) ? strtotime($row['horafim']) : ($iniTs + 7200);
+            if ($fimTs < $iniTs) {
+                $fimTs = $iniTs + 3600;
+            }
+            $duracaoMin = max(1, round(($fimTs - $iniTs) / 60));
+
+            $periodoStr = strtolower($row['periodo_locado'] ?? '');
+            $isPernoite = (strpos($periodoStr, 'pernoite') !== false) || ($duracaoMin >= 360);
+
+            $valPago = (float)$row['total_pago'];
+            $valBruto = (float)$row['valorquarto'] + (float)$row['valorconsumo'];
+            $receita = $valPago > 0 ? $valPago : $valBruto;
+
+            // Dia da semana MySQL/JS: 1=Dom, 2=Seg, ..., 7=Sáb
+            $diaSemana = (int)date('w', $iniTs) + 1;
+            $horaInicio = (int)date('G', $iniTs);
+
+            $locacoes[] = [
+                'q' => $numQ,
+                't' => $tipoQ,
+                'ini' => $iniTs,
+                'fim' => $fimTs,
+                'd' => $diaSemana,
+                'h' => $horaInicio,
+                'dur' => $duracaoMin,
+                'p' => $isPernoite ? 1 : 0,
+                'val' => round($receita, 2)
+            ];
+        }
+    }
+
+    return [
+        'locacoes' => $locacoes,
+        'vendas_avulsas' => round($vendasAvulsas, 2)
     ];
 }
 
-$tipoAluguel = $rowGestao['tipo_aluguel'];
-$valorAluguel = (float)$rowGestao['valor_aluguel'];
-$custoLimpeza = (float)$rowGestao['custo_variavel_limpeza'];
-$despesasFixas = (float)$rowGestao['despesas_fixas_mensais'];
-// ==================================================
+function montarPayloadPerformance($conexao, $selectedPeriod, $customInicio = '', $customFim = '') {
+    list($dataInicio, $dataFim) = resolverPeriodo($selectedPeriod, $customInicio, $customFim);
 
-// Helper para calcular dias
-$timestampInicio = strtotime($dataInicio);
-$timestampFim = strtotime($dataFim);
-$diferencaDias = max(1, round(($timestampFim - $timestampInicio) / (60 * 60 * 24))); // Minimum 1 for div by zero
+    $timestampInicio = strtotime($dataInicio);
+    $timestampFim = strtotime($dataFim);
+    $diferencaDias = max(1, (int)round(($timestampFim - $timestampInicio) / (60 * 60 * 24)));
 
-// Calcular período anterior para insights
-$diasPeriodo = $diferencaDias;
-$prevInicio = date('Y-m-d H:i:s', $timestampInicio - ($diasPeriodo * 24 * 60 * 60));
-$prevFim = date('Y-m-d H:i:s', $timestampFim - ($diasPeriodo * 24 * 60 * 60));
+    $prevInicio = date('Y-m-d H:i:s', $timestampInicio - ($diferencaDias * 86400));
+    $prevFim = date('Y-m-d H:i:s', $timestampFim - ($diferencaDias * 86400));
 
-function getFaturamentoETotal($conexao, $inicio, $fim) {
-    $sql = "SELECT SUM(saldofecha) AS faturamentomes, COUNT(c.id) as num_caixas
-            FROM caixa c WHERE horaabre >= '$inicio' AND horaabre <= '$fim'";
-    $res = $conexao->query($sql);
-    $fat = 0;
-    if ($res && $row = $res->fetch_assoc()) {
-        $fat = $row['faturamentomes'] ?? 0;
-    }
-    
-    // Obter numero de locacoes no periodo usando os caixas do periodo
-    $sqlLoc = "SELECT COUNT(r.idlocacao) as total_loc 
-               FROM registralocado r JOIN caixa c ON r.idcaixaatual = c.id 
-               WHERE c.horaabre >= '$inicio' AND c.horaabre <= '$fim'";
-    $resLoc = $conexao->query($sqlLoc);
-    $loc = 0;
-    if ($resLoc && $rowLoc = $resLoc->fetch_assoc()) {
-        $loc = $rowLoc['total_loc'] ?? 0;
-    }
-    return ['faturamento' => $fat, 'locacoes' => $loc];
-}
-
-$atualData = getFaturamentoETotal($conexao, $dataInicio, $dataFim);
-$faturamentoAtual = $atualData['faturamento'];
-$locacoesAtual = $atualData['locacoes'];
-
-$prevData = getFaturamentoETotal($conexao, $prevInicio, $prevFim);
-$faturamentoPrev = $prevData['faturamento'];
-$locacoesPrev = $prevData['locacoes'];
-
-// --- CÁLCULO DE LUCRO REAL BASEADO NO FLUXO DE CAIXA ---
-$sqlTotalDesp = "SELECT SUM(valor) as total FROM despesas WHERE horario >= '$dataInicio' AND horario <= '$dataFim'";
-$resTotalDesp = $conexao->query($sqlTotalDesp);
-$despVal = ($resTotalDesp && $row = $resTotalDesp->fetch_assoc()) ? (float)($row['total'] ?? 0.0) : 0.0;
-
-$sqlTotalRet = "SELECT SUM(valor) as total FROM retiradas_caixa WHERE horario >= '$dataInicio' AND horario <= '$dataFim'";
-$resTotalRet = $conexao->query($sqlTotalRet);
-$retVal = ($resTotalRet && $row = $resTotalRet->fetch_assoc()) ? (float)($row['total'] ?? 0.0) : 0.0;
-
-$totalDespesasReais = $despVal + $retVal;
-$lucroLiquido = $faturamentoAtual - $totalDespesasReais;
-$margemLiquida = $faturamentoAtual > 0 ? ($lucroLiquido / $faturamentoAtual) * 100 : 0;
-
-// Gráfico: Destino do seu Faturamento (Categorias do fluxo + Lucro se positivo)
-$sqlCat = "SELECT categoria, SUM(valor) as total FROM despesas WHERE horario >= '$dataInicio' AND horario <= '$dataFim' GROUP BY categoria";
-$resCat = $conexao->query($sqlCat);
-$chartLabels = [];
-$chartValues = [];
-
-if ($resCat) {
-    while ($row = $resCat->fetch_assoc()) {
-        $chartLabels[] = htmlspecialchars($row['categoria']);
-        $chartValues[] = (float)$row['total'];
-    }
-}
-if ($retVal > 0) {
-    $chartLabels[] = "Retiradas/Sangrias";
-    $chartValues[] = $retVal;
-}
-if ($lucroLiquido > 0) {
-    $chartLabels[] = "Lucro Líquido";
-    $chartValues[] = $lucroLiquido;
-}
-// --------------------------------------------------------
-
-// KPIs
-$qtdQuartos = 9; // Conforme requisito
-$revPar = $faturamentoAtual / ($qtdQuartos * $diferencaDias);
-$ticketMedio = $locacoesAtual > 0 ? $faturamentoAtual / $locacoesAtual : 0;
-$giroDiario = $locacoesAtual > 0 ? $locacoesAtual / ($qtdQuartos * $diferencaDias) : 0;
-
-$ticketMedioPrev = $locacoesPrev > 0 ? $faturamentoPrev / $locacoesPrev : 0;
-$crescimentoTicket = 0;
-if ($ticketMedioPrev > 0) {
-    $crescimentoTicket = (($ticketMedio - $ticketMedioPrev) / $ticketMedioPrev) * 100;
-}
-
-// Assumindo 4 locações ao longo de 24h como 100% de ocupação ótima para um Motel
-$taxaOcupacao = min(100, ($giroDiario / 4) * 100); 
-
-// Gráfico: Tipos de Quartos
-$sqlTipos = "SELECT q.tipoquarto, COUNT(r.idlocacao) as qtd 
-             FROM registralocado r 
-             JOIN quartos q ON r.numquarto = q.numeroquarto 
-             JOIN caixa c ON r.idcaixaatual = c.id 
-             WHERE c.horaabre >= '$dataInicio' AND c.horaabre <= '$dataFim' 
-             GROUP BY q.tipoquarto";
-$resTipos = $conexao->query($sqlTipos);
-$labelsTipos = [];
-$dataTipos = [];
-if($resTipos){
-    while($row = $resTipos->fetch_assoc()){
-        $labelsTipos[] = htmlspecialchars($row['tipoquarto']);
-        $dataTipos[] = (int)$row['qtd'];
-    }
-}
-
-// Gráfico: Ranking Quartos (Receita)
-$sqlRanking = "SELECT r.numquarto, SUM(r.valorquarto + COALESCE(r.valorconsumo,0)) as receita 
-               FROM registralocado r 
-               JOIN caixa c ON r.idcaixaatual = c.id 
-               WHERE c.horaabre >= '$dataInicio' AND c.horaabre <= '$dataFim' 
-               GROUP BY r.numquarto ORDER BY receita DESC";
-$resRanking = $conexao->query($sqlRanking);
-$labelsRanking = [];
-$dataRanking = [];
-if($resRanking){
-    while($row = $resRanking->fetch_assoc()){
-        $labelsRanking[] = "Quarto " . $row['numquarto'];
-        $dataRanking[] = (float)$row['receita'];
-    }
-}
-
-// Gráfico: Heatmap Horários
-$sqlHorarios = "SELECT HOUR(r.horainicio) as hora, COUNT(r.idlocacao) as qtd 
-                FROM registralocado r 
-                JOIN caixa c ON r.idcaixaatual = c.id 
-                WHERE c.horaabre >= '$dataInicio' AND c.horaabre <= '$dataFim' 
-                GROUP BY HOUR(r.horainicio)";
-$resHorarios = $conexao->query($sqlHorarios);
-$horasCompletas = array_fill(0, 24, 0);
-if($resHorarios){
-    while($row = $resHorarios->fetch_assoc()){
-        if($row['hora'] !== null) {
-            $horasCompletas[(int)$row['hora']] = (int)$row['qtd'];
+    // Carregar todos os quartos cadastrados e suas categorias
+    $quartosLista = [];
+    $quartosMap = [];
+    $categoriasContagem = [];
+    $resQ = $conexao->query("SELECT numeroquarto, tipoquarto FROM quartos ORDER BY numeroquarto ASC");
+    if ($resQ) {
+        while ($rowQ = $resQ->fetch_assoc()) {
+            $n = (int)$rowQ['numeroquarto'];
+            $t = trim($rowQ['tipoquarto'] ?: 'Padrão');
+            $quartosMap[$n] = $t;
+            $quartosLista[] = ['numero' => $n, 'tipo' => $t];
+            if (!isset($categoriasContagem[$t])) {
+                $categoriasContagem[$t] = 0;
+            }
+            $categoriasContagem[$t]++;
         }
     }
-}
-$labelsHorarios = array_keys($horasCompletas);
-$dataHorarios = array_values($horasCompletas);
 
-// Heatmap: Dia da Semana vs Hora
-$sqlHeatmap = "SELECT DAYOFWEEK(r.horainicio) as dia_semana, HOUR(r.horainicio) as hora, COUNT(r.idlocacao) as qtd 
-               FROM registralocado r 
-               JOIN caixa c ON r.idcaixaatual = c.id 
-               WHERE c.horaabre >= '$dataInicio' AND c.horaabre <= '$dataFim' 
-               GROUP BY dia_semana, hora";
-$resHeatmap = $conexao->query($sqlHeatmap);
-$heatmapData = [];
-for ($d = 1; $d <= 7; $d++) {
-    for ($h = 0; $h < 24; $h++) {
-        $heatmapData[$d][$h] = 0;
-    }
-}
-$maxHeatmapValue = 0;
-if($resHeatmap){
-    while($row = $resHeatmap->fetch_assoc()){
-        $d = (int)$row['dia_semana'];
-        $h = (int)$row['hora'];
-        $q = (int)$row['qtd'];
-        $heatmapData[$d][$h] = $q;
-        if ($q > $maxHeatmapValue) $maxHeatmapValue = $q;
-    }
-}
-$diasNomes = [1 => 'Dom', 2 => 'Seg', 3 => 'Ter', 4 => 'Qua', 5 => 'Qui', 6 => 'Sex', 7 => 'Sáb'];
+    $atual = carregarLocacoesPeriodo($conexao, $dataInicio, $dataFim, $quartosMap);
+    $anterior = carregarLocacoesPeriodo($conexao, $prevInicio, $prevFim, $quartosMap);
 
-// Finais de Semana vs Dias Uteis
-$sqlWeek = "SELECT 
-              SUM(CASE WHEN (DAYOFWEEK(r.horainicio) = 1) OR (DAYOFWEEK(r.horainicio) = 7) OR (DAYOFWEEK(r.horainicio) = 6 AND HOUR(r.horainicio) >= 18) THEN 1 ELSE 0 END) as weekend_qtd,
-              SUM(CASE WHEN NOT ((DAYOFWEEK(r.horainicio) = 1) OR (DAYOFWEEK(r.horainicio) = 7) OR (DAYOFWEEK(r.horainicio) = 6 AND HOUR(r.horainicio) >= 18)) THEN 1 ELSE 0 END) as weekday_qtd
-            FROM registralocado r 
-            JOIN caixa c ON r.idcaixaatual = c.id 
-            WHERE c.horaabre >= '$dataInicio' AND c.horaabre <= '$dataFim'";
-$resWeek = $conexao->query($sqlWeek);
-$weekData = ['weekend' => 0, 'weekday' => 0];
-if($resWeek && $rowW = $resWeek->fetch_assoc()){
-    $weekData['weekend'] = (int)$rowW['weekend_qtd'];
-    $weekData['weekday'] = (int)$rowW['weekday_qtd'];
-}
+    // Despesas e Retiradas do período
+    $despesasCategorias = [];
+    $totalDespesas = 0.0;
 
-// Data de implantação / primeiro registro do sistema
-$sqlFirst = "SELECT MIN(horaabre) as primeira_data FROM caixa";
-$resFirst = $conexao->query($sqlFirst);
-$dataImplantacao = null;
-if ($resFirst && $rowFirst = $resFirst->fetch_assoc()) {
-    $dataImplantacao = $rowFirst['primeira_data'];
-}
-
-// AI Insights
-// Mantida apenas a regra matemática de Ponto de Equilíbrio (Break-Even) nativa
-if ($faturamentoAtual < $totalDespesasReais && $faturamentoAtual > 0) {
-    $falta = $totalDespesasReais - $faturamentoAtual;
-    $insights[] = "📉 <b>Ponto de Equilíbrio:</b> Faltam R$ " . number_format($falta, 2, ',', '.') . " para você cobrir as despesas reais deste período. A partir deste valor, começaremos a lucrar.";
-}
-
-// Integracão IA GEMINI Expandida
-$capacidade_maxima = $qtdQuartos * $diferencaDias * 4; // 100% locação (4 giros de 6h/dia)
-$margemLiquida = $faturamentoAtual > 0 ? ($lucroLiquido / $faturamentoAtual) * 100 : 0;
-
-$geminiApiKey = getenv('GEMINI_API_KEY') ?: ($_ENV['GEMINI_API_KEY'] ?? ($_SERVER['GEMINI_API_KEY'] ?? ''));
-
-$insightIAText = "";
-
-if (empty($geminiApiKey)) {
-    $insights[] = "⚠️ <b>Alerta de Setup:</b> A variável de ambiente <code>GEMINI_API_KEY</code> não foi encontrada no servidor. A I.A. Sócio Virtual está pausada.";
-} else {
-    $despesasDetalhadasTexto = "";
-    if (isset($chartLabels) && isset($chartValues)) {
-        foreach ($chartLabels as $index => $label) {
-            if ($label !== 'Lucro Líquido') {
-                $despesasDetalhadasTexto .= "- {$label}: R$ " . number_format($chartValues[$index], 2, ',', '.') . "\n";
+    $sqlCat = "SELECT categoria, SUM(valor) as total FROM despesas WHERE horario >= ? AND horario <= ? GROUP BY categoria";
+    $stmtCat = $conexao->prepare($sqlCat);
+    if ($stmtCat) {
+        $stmtCat->bind_param("ss", $dataInicio, $dataFim);
+        $stmtCat->execute();
+        $resCat = $stmtCat->get_result();
+        while ($row = $resCat->fetch_assoc()) {
+            $val = round((float)$row['total'], 2);
+            if ($val > 0) {
+                $despesasCategorias[] = ['categoria' => $row['categoria'], 'valor' => $val];
+                $totalDespesas += $val;
             }
         }
+        $stmtCat->close();
     }
 
-    $fatMoM = $faturamentoPrev > 0 ? (($faturamentoAtual - $faturamentoPrev) / $faturamentoPrev) * 100 : 0;
-    $locMoM = $locacoesPrev > 0 ? (($locacoesAtual - $locacoesPrev) / $locacoesPrev) * 100 : 0;
-    $ticketMoM = $ticketMedioPrev > 0 ? (($ticketMedio - $ticketMedioPrev) / $ticketMedioPrev) * 100 : 0;
-
-    $prompt = "Atue como um consultor sênior especialista em gestão estratégica e BI de motéis. Analise com atenção milimétrica os números abaixo:\n\n" .
-              "--- DADOS DO PERÍODO ATUAL ---\n" .
-              "Período: " . date('d/m/Y', strtotime($dataInicio)) . " a " . date('d/m/Y', strtotime($dataFim)) . " (" . $diferencaDias . " dias)\n" .
-              "Faturamento Bruto: R$ " . number_format($faturamentoAtual, 2, ',', '.') . "\n" .
-              "Total de Despesas Lançadas: R$ " . number_format($totalDespesasReais, 2, ',', '.') . "\n" .
-              "Lucro Líquido Real: R$ " . number_format($lucroLiquido, 2, ',', '.') . " (Margem: " . number_format($margemLiquida, 1, ',', '.') . "%)\n" .
-              "Ticket Médio: R$ " . number_format($ticketMedio, 2, ',', '.') . "\n" .
-              "Giro Diário (Locações por quarto por dia): " . number_format($giroDiario, 2, ',', '.') . " (Ocupação: " . $locacoesAtual . " locações realizadas em relação à capacidade máxima física estimada de " . $capacidade_maxima . " locações)\n" .
-              "\n--- DETALHAMENTO DE DESPESAS ---\n" .
-              (empty($despesasDetalhadasTexto) ? "Nenhuma despesa lançada no período\n" : $despesasDetalhadasTexto) .
-              "\n--- COMPARAÇÃO COM PERÍODO ANTERIOR (MoM) ---\n" .
-              "Faturamento MoM: " . ($fatMoM >= 0 ? "+" : "") . number_format($fatMoM, 1, ',', '.') . "%\n" .
-              "Ocupação/Locações MoM: " . ($locMoM >= 0 ? "+" : "") . number_format($locMoM, 1, ',', '.') . "%\n" .
-              "Ticket Médio MoM: " . ($ticketMoM >= 0 ? "+" : "") . number_format($ticketMoM, 1, ',', '.') . "%\n\n" .
-              "Sua tarefa é gerar 3 insights executivos de altíssimo nível, focados 100% em ações práticas baseadas nesses números específicos. Siga estas regras estritamente:\n" .
-              "- NUNCA use introduções nem despedidas (nada de 'Prezados Gestores', 'Atenciosamente', 'Apresento a análise'). Comece direto no conteúdo do primeiro insight.\n" .
-              "- NUNCA dê conselhos teóricos óbvios (como 'treine sua equipe', 'crie combos', 'promova marketing'). Seja específico sobre qual despesa cortar ou qual indicador alavancar baseado nos valores informados.\n" .
-              "- Destaque e calcule porcentagens específicas baseadas na divisão de despesas fornecida. Faça correlações (ex: correlacione a maior despesa com o faturamento, ou o custo de aluguel/fixos com a margem).\n" .
-              "- Formate a saída como um relatório executivo curto com tags HTML <br> e <b>. Use exatamente 3 parágrafos, cada um com um emoji forte de negócios no início.";
-
-    $geminiData = json_encode(['contents' => [['parts' => [['text' => $prompt]]]]]);
-    $ch = curl_init('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=' . $geminiApiKey);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $geminiData);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    // Adicionando instrução para ignorar cache explicitly (geralmente curl já não faz por POST, mas garante-se)
-    curl_setopt($ch, CURLOPT_FRESH_CONNECT, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 6); 
-    $geminiResponse = curl_exec($ch);
-    $curl_err = curl_error($ch);
-    curl_close($ch);
-
-    if ($geminiResponse) {
-        $geminiJson = json_decode($geminiResponse, true);
-        if (isset($geminiJson['candidates'][0]['content']['parts'][0]['text'])) {
-             $textoDica = trim($geminiJson['candidates'][0]['content']['parts'][0]['text']);
-             
-             if (strpos($textoDica, '<br>') === false && strpos($textoDica, '<li>') === false) {
-                 $textoDica = nl2br($textoDica);
-             }
-             
-             $insights[] = "🧠 <b>Consultoria IA Avançada:</b><br><br>" . $textoDica;
-             $insightIAText = strip_tags($textoDica);
-        } else if (isset($geminiJson['error'])) {
-             $insights[] = "⚠️ <b>Erro na IA Gemini:</b> " . htmlspecialchars($geminiJson['error']['message']);
-        } else {
-             $insights[] = "⚠️ <b>Erro IA:</b> Resposta vazia ou não reconhecida do modelo. Tente novamente.";
+    $sqlRet = "SELECT COALESCE(SUM(valor), 0) as total FROM retiradas_caixa WHERE horario >= ? AND horario <= ?";
+    $stmtRet = $conexao->prepare($sqlRet);
+    if ($stmtRet) {
+        $stmtRet->bind_param("ss", $dataInicio, $dataFim);
+        $stmtRet->execute();
+        $resRet = $stmtRet->get_result();
+        if ($rowR = $resRet->fetch_assoc()) {
+            $retVal = round((float)$rowR['total'], 2);
+            if ($retVal > 0) {
+                $despesasCategorias[] = ['categoria' => 'Retiradas/Sangrias', 'valor' => $retVal];
+                $totalDespesas += $retVal;
+            }
         }
-    } else {
-        $insights[] = "⚠️ <b>Erro de Conexão CURL:</b> Falha de comunicação. " . htmlspecialchars($curl_err);
+        $stmtRet->close();
     }
+
+    return [
+        'period' => $selectedPeriod,
+        'data_inicio_fmt' => date('d/m/Y', $timestampInicio),
+        'data_fim_fmt' => date('d/m/Y', $timestampFim),
+        'dias' => $diferencaDias,
+        'quartos' => $quartosLista,
+        'categorias_qtd' => $categoriasContagem,
+        'locacoes' => $atual['locacoes'],
+        'vendas_avulsas' => $atual['vendas_avulsas'],
+        'prev_locacoes' => $anterior['locacoes'],
+        'prev_vendas_avulsas' => $anterior['vendas_avulsas'],
+        'despesas_categorias' => $despesasCategorias,
+        'total_despesas' => round($totalDespesas, 2)
+    ];
 }
 
-$alertaCustos = ($despesasFixas == 0 && $custoLimpeza == 0 && $valorAluguel == 0);
+// Endpoint AJAX para trocar de período sem recarregar a página!
+if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
+    header('Content-Type: application/json; charset=utf-8');
+    $p = $_GET['period'] ?? 'this_month';
+    $ci = $_GET['data_inicio'] ?? '';
+    $cf = $_GET['data_fim'] ?? '';
+    $payload = montarPayloadPerformance($conexao, $p, $ci, $cf);
+    $conexao->close();
+    echo json_encode($payload);
+    exit();
+}
 
-
+$selectedPeriod = $_POST["period"] ?? ($_GET["period"] ?? 'this_month');
+$initialPayload = montarPayloadPerformance($conexao, $selectedPeriod, $_POST["data_inicio"] ?? '', $_POST["data_fim"] ?? '');
 $conexao->close();
 ?>
 <!DOCTYPE html>
@@ -422,326 +293,489 @@ $conexao->close();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard de Performance - Motel Inteligente</title>
+    <title>Performance & Mapa de Calor - <?= ucfirst($filial) ?></title>
+    <link rel="icon" href="imagens/iconeMI.png" type="image/png" sizes="32x32">
+
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link rel="stylesheet" href="//code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="icon" href="imagens/iconeMI.png" type="image/png" sizes="32x32">
+
     <style>
-        body { background-color: #f8f9fa; margin-bottom: 80px; }
-        .main-container { max-width: 1200px; margin-top: 20px; }
-        .card { margin-bottom: 15px; border-radius: 0.5rem; box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075); border: none; }
-        .kpi-card { background-color: #fff; padding: 20px; border-radius: 8px; text-align: center; height: 100%; display: flex; flex-direction: column; justify-content: center; }
-        .kpi-value { font-size: 2rem; font-weight: bold; color: #0d6efd; margin-bottom: 0; }
-        .kpi-label { font-size: 0.9rem; color: #6c757d; font-weight: 600; text-transform: uppercase; }
-        .chart-container { position: relative; height: 300px; width: 100%; }
-        .ai-insight { background-color: #e2e3e5; border-left: 4px solid #0d6efd; padding: 15px; margin-bottom: 10px; border-radius: 4px; }
-        
-        /* Heatmap Styles */
-        .heatmap-container { overflow-x: auto; }
-        .heatmap-table { width: 100%; border-collapse: separate; border-spacing: 2px; table-layout: fixed; min-width: 800px; }
-        .heatmap-cell { height: 35px; border-radius: 3px; font-size: 0.75rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s; cursor: default; font-weight: bold; }
-        .heatmap-cell:hover { transform: scale(1.15); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); z-index: 50; border: 2px solid #fff; }
-        .heatmap-header { font-size: 0.7rem; font-weight: bold; color: #9ca3af; text-align: center; padding-bottom: 5px; }
-        .heatmap-label { font-size: 0.75rem; font-weight: bold; color: #4b5563; text-align: right; padding-right: 10px; width: 45px; }
-        
-        @media (max-width: 768px) {
-            .heatmap-cell { height: 30px; font-size: 0.65rem; }
-            .heatmap-label { width: 35px; font-size: 0.65rem; }
+        :root {
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --card-border: rgba(0, 0, 0, 0.08);
+            --text-color: #1e293b;
+            --font-primary: 'Inter', sans-serif;
+            --font-title: 'Outfit', sans-serif;
         }
 
-        .modal-heatmap-body { background: #111827; color: white; }
-        .rotate-hint { display: none; }
-        @media (max-width: 768px) and (orientation: portrait) {
-            .rotate-hint { display: block; background: #374151; padding: 10px; border-radius: 8px; margin-bottom: 15px; border: 1px dashed #6b7280; }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: var(--font-primary);
+            margin-bottom: 95px;
+        }
+
+        .main-container {
+            max-width: 1240px;
+            margin-top: 16px;
+            padding-left: 12px;
+            padding-right: 12px;
+        }
+
+        @media (min-width: 768px) {
+            .main-container {
+                margin-top: 26px;
+                padding-left: 15px;
+                padding-right: 15px;
+            }
+        }
+
+        .title-gradient {
+            font-family: var(--font-title);
+            background: linear-gradient(45deg, #1e3a8a, #2563eb);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 800;
+        }
+
+        .glass-panel {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 14px;
+            padding: 14px;
+            box-shadow: 0 8px 24px -10px rgba(0, 0, 0, 0.08);
+        }
+
+        @media (min-width: 768px) {
+            .glass-panel {
+                border-radius: 16px;
+                padding: 18px 20px;
+            }
+        }
+
+        .hero-banner {
+            background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+            color: white;
+            border-radius: 16px;
+            padding: 18px 22px;
+            box-shadow: 0 12px 28px -8px rgba(16, 185, 129, 0.45);
+            transition: background 0.3s ease;
+        }
+
+        .hero-banner.filtered-mode {
+            background: linear-gradient(135deg, #1d4ed8 0%, #3b82f6 100%);
+            box-shadow: 0 12px 28px -8px rgba(37, 99, 235, 0.4);
+        }
+
+        .kpi-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 14px;
+            padding: 14px 16px;
+            height: 100%;
+            box-shadow: 0 8px 20px -10px rgba(0, 0, 0, 0.06);
+            position: relative;
+        }
+
+        .kpi-label {
+            font-size: 0.74rem;
+            color: #64748b;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            margin-bottom: 4px;
+        }
+
+        .kpi-value {
+            font-size: 1.45rem;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 2px;
+        }
+
+        @media (min-width: 768px) {
+            .kpi-value {
+                font-size: 1.75rem;
+            }
+        }
+
+        .chart-container {
+            position: relative;
+            height: 290px;
+            width: 100%;
+        }
+
+        /* Heatmap Styles */
+        .heatmap-container {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            padding-bottom: 6px;
+        }
+
+        .heatmap-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 3px;
+            table-layout: fixed;
+            min-width: 760px;
+        }
+
+        .heatmap-cell {
+            height: 36px;
+            border-radius: 5px;
+            font-size: 0.74rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+            cursor: pointer;
+            font-weight: 700;
+            user-select: none;
+        }
+
+        .heatmap-cell:hover {
+            transform: scale(1.15);
+            box-shadow: 0 8px 16px -3px rgba(0, 0, 0, 0.18);
+            z-index: 50;
+            border: 2px solid #1e293b;
+        }
+
+        .heatmap-header {
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: #64748b;
+            text-align: center;
+            padding-bottom: 4px;
+        }
+
+        .heatmap-label {
+            font-size: 0.76rem;
+            font-weight: 700;
+            color: #334155;
+            text-align: right;
+            padding-right: 8px;
+            width: 44px;
+        }
+
+        .gargalo-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 0.84rem;
+            font-weight: 600;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 14px;
+            right: 14px;
+            z-index: 9999;
+            display: none;
+        }
+
+        .form-select, .form-control {
+            font-size: 15px;
         }
     </style>
 </head>
 <body>
+
+    <!-- Indicador discreto de atualização AJAX -->
+    <div id="loadingIndicator" class="loading-overlay">
+        <div class="badge bg-dark text-white px-3 py-2 shadow d-flex align-items-center gap-2">
+            <div class="spinner-border spinner-border-sm text-info" role="status"></div>
+            <span>Atualizando dados...</span>
+        </div>
+    </div>
+
     <div class="container main-container">
         
-        <!-- Cabeçalho (WhatsApp Export e Período) -->
-        <div class="d-flex justify-content-between align-items-center mb-4 mt-2">
+        <!-- Cabeçalho -->
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-2 mb-3">
             <div>
-                <h3 class="mb-1 text-primary fw-bold">Dashboard de Lucratividade</h3>
-                <p class="text-muted mb-0">Exibindo dados de <?= date('d/m/Y', strtotime($dataInicio)) ?> a <?= date('d/m/Y', strtotime($dataFim)) ?></p>
+                <h2 class="title-gradient mb-0 fs-3 fs-md-2">Performance & Mapa de Calor</h2>
+                <p class="text-muted mb-0 small">
+                    Período: <strong id="lblPeriodoAtivo"><?= $initialPayload['data_inicio_fmt'] ?> a <?= $initialPayload['data_fim_fmt'] ?></strong>
+                    (<span id="lblDiasAtivos"><?= $initialPayload['dias'] ?></span> dias)
+                </p>
             </div>
-            <div>
-                <button onclick="exportToWhats()" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded shadow-sm inline-flex items-center transition duration-300">
-                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24"><path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.771-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.299.045-.677.063-1.092-.069-.252-.08-.575-.187-.988-.365-1.739-.751-2.874-2.502-2.961-2.617-.087-.116-.708-.94-.708-1.793s.448-1.273.607-1.446c.159-.173.346-.217.462-.217l.332.006c.106.005.249-.04.39.298.144.347.491 1.2.534 1.287.043.087.072.188.014.304-.058.116-.087.188-.173.289l-.26.304c-.087.086-.177.18-.076.354.101.174.449.741.964 1.201.662.591 1.221.774 1.394.86s.274.072.376-.043c.101-.116.433-.506.549-.68.116-.173.231-.145.39-.087s1.011.477 1.184.564.289.13.332.202c.045.072.045.419-.098.824z"/></svg>
-                    Resumo p/ Whats
+            <div class="d-flex gap-2 w-100 w-md-auto justify-content-end">
+                <button onclick="exportToWhats()" class="btn btn-success fw-semibold d-inline-flex align-items-center gap-2 shadow-sm">
+                    <i class="bi bi-whatsapp"></i> Resumo p/ Whats
                 </button>
             </div>
         </div>
-        <!-- Lucro Líquido Real Dash -->
-        <div class="row mb-4">
-            <div class="col-md-12">
-                <div class="bg-emerald-500 text-white rounded-xl shadow-lg p-6 text-center transform transition duration-500 hover:scale-105">
-                    <p class="text-xl font-bold uppercase tracking-widest opacity-90 mb-2">💰 Lucro Líquido Real</p>
-                    <p class="text-5xl font-extrabold mb-2">R$ <?= number_format($lucroLiquido, 2, ',', '.') ?></p>
-                    <p class="text-sm font-medium opacity-85">Faturamento Bruto descontando todas as despesas e retiradas reais lançadas no Fluxo de Caixa para este período.</p>
+
+        <!-- Painel de Filtros em Tempo Real (Sem Recarregar a Página!) -->
+        <div class="glass-panel mb-3 border-top border-4 border-primary">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="fw-bold text-primary small text-uppercase">
+                    <i class="bi bi-sliders me-1"></i> Filtros Dinâmicos em Tempo Real (Sem recarregar a página)
+                </span>
+                <button type="button" class="btn btn-sm btn-link text-decoration-none p-0" onclick="resetarFiltrosLocais()">
+                    <i class="bi bi-arrow-counterclockwise"></i> Limpar filtros de quarto
+                </button>
+            </div>
+
+            <div class="row g-2 g-md-3 align-items-end">
+                <!-- Período (Atualiza via AJAX automaticamente ao selecionar) -->
+                <div class="col-12 col-sm-6 col-md-3">
+                    <label for="period" class="form-label fw-semibold text-muted small mb-1">📅 Período</label>
+                    <select id="period" class="form-select">
+                        <option value="7" <?= ($selectedPeriod == '7' ? 'selected' : '') ?>>Últimos 7 dias</option>
+                        <option value="15" <?= ($selectedPeriod == '15' ? 'selected' : '') ?>>Últimos 15 dias</option>
+                        <option value="30" <?= ($selectedPeriod == '30' ? 'selected' : '') ?>>Últimos 30 dias</option>
+                        <option value="this_month" <?= ($selectedPeriod == 'this_month' ? 'selected' : '') ?>>Este Mês</option>
+                        <option value="last_month" <?= ($selectedPeriod == 'last_month' ? 'selected' : '') ?>>Mês Passado</option>
+                        <option value="this_quarter" <?= ($selectedPeriod == 'this_quarter' ? 'selected' : '') ?>>Trimestre Atual</option>
+                        <option value="this_semester" <?= ($selectedPeriod == 'this_semester' ? 'selected' : '') ?>>Semestre Atual</option>
+                        <option value="this_year" <?= ($selectedPeriod == 'this_year' ? 'selected' : '') ?>>Anual (Este Ano)</option>
+                        <option value="last_year" <?= ($selectedPeriod == 'last_year' ? 'selected' : '') ?>>Ano Passado</option>
+                        <option value="custom" <?= ($selectedPeriod == 'custom' ? 'selected' : '') ?>>Personalizado...</option>
+                    </select>
+                </div>
+
+                <!-- Categoria / Tipo de Quarto (Instantâneo 0ms) -->
+                <div class="col-6 col-sm-6 col-md-3">
+                    <label for="filtroCategoria" class="form-label fw-semibold text-muted small mb-1">🏷️ Tipo de Quarto</label>
+                    <select id="filtroCategoria" class="form-select">
+                        <option value="all">Todas as Categorias</option>
+                    </select>
+                </div>
+
+                <!-- Quarto Específico (Instantâneo 0ms) -->
+                <div class="col-6 col-sm-6 col-md-3">
+                    <label for="filtroQuarto" class="form-label fw-semibold text-muted small mb-1">🚪 Quarto Específico</label>
+                    <select id="filtroQuarto" class="form-select">
+                        <option value="all">Todos os Quartos</option>
+                    </select>
+                </div>
+
+                <!-- Modalidade (Período vs Pernoite - Instantâneo 0ms) -->
+                <div class="col-12 col-sm-6 col-md-3">
+                    <label for="filtroModalidade" class="form-label fw-semibold text-muted small mb-1">🌙 Modalidade</label>
+                    <select id="filtroModalidade" class="form-select">
+                        <option value="all">Todas (Período + Pernoite)</option>
+                        <option value="periodo">Somente Períodos</option>
+                        <option value="pernoite">Somente Pernoites</option>
+                    </select>
+                </div>
+
+                <!-- Campos de Data Personalizada (aparecem só quando Personalizado está ativo) -->
+                <div id="custom_period" class="col-12 row g-2 mt-2" style="display: none;">
+                    <div class="col-5 col-md-4">
+                        <input type="text" id="data_inicio" class="form-control" placeholder="Início (dd/mm/aaaa)" autocomplete="off">
+                    </div>
+                    <div class="col-5 col-md-4">
+                        <input type="text" id="data_fim" class="form-control" placeholder="Fim (dd/mm/aaaa)" autocomplete="off">
+                    </div>
+                    <div class="col-2 col-md-4 d-grid">
+                        <button type="button" class="btn btn-primary fw-semibold" onclick="carregarPeriodoAjax()">Buscar</button>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- Card Filtros & Config de Gestão -->
-        <div class="card shadow-sm mb-4 border-t-4 border-blue-500">
-            <div class="card-body">
-                <form method="post" action="performance.php" class="row g-3 align-items-end">
-                    <div class="col-md-3">
-                        <label for="period" class="form-label font-bold text-gray-700">📅 Selecione o Período</label>
-                        <select name="period" id="period" class="form-select border-2 border-gray-200">
-                            <option value="this_month" <?= ($selectedPeriod == 'this_month' ? 'selected' : '') ?>>Este Mês</option>
-                            <option value="last_month" <?= ($selectedPeriod == 'last_month' ? 'selected' : '') ?>>Mês Passado</option>
-                            <option value="this_quarter" <?= ($selectedPeriod == 'this_quarter' ? 'selected' : '') ?>>Trimestre Atual</option>
-                            <option value="this_semester" <?= ($selectedPeriod == 'this_semester' ? 'selected' : '') ?>>Semestre Atual</option>
-                            <option value="this_year" <?= ($selectedPeriod == 'this_year' ? 'selected' : '') ?>>Este Ano</option>
-                            <option value="last_year" <?= ($selectedPeriod == 'last_year' ? 'selected' : '') ?>>Ano Passado</option>
-                            <option value="custom" <?= ($selectedPeriod == 'custom' ? 'selected' : '') ?>>Definir um Período</option>
-                        </select>
+        <!-- Banner Principal (Lucro Líquido Geral ou Receita do Filtro Selecionado) -->
+        <div id="heroBanner" class="hero-banner mb-3">
+            <div class="row align-items-center">
+                <div class="col-12 col-md-7 text-center text-md-start">
+                    <div id="heroTitulo" class="text-uppercase fw-bold small opacity-90">💰 Lucro Líquido Real do Período</div>
+                    <div id="heroValor" class="display-5 fw-bold my-1">R$ 0,00</div>
+                    <div id="heroSubtitulo" class="small opacity-90">Faturamento bruto menos despesas e sangrias lançadas no Fluxo de Caixa.</div>
+                </div>
+                <div class="col-12 col-md-5 mt-3 mt-md-0 text-center text-md-end border-top border-md-0 pt-2 pt-md-0" style="border-color: rgba(255,255,255,0.2) !important;">
+                    <div class="d-inline-block text-start me-4">
+                        <div class="small opacity-75">Faturamento Bruto</div>
+                        <div id="heroFatBruto" class="fs-5 fw-bold">R$ 0,00</div>
                     </div>
-                    <div id="custom_period" class="col-md-7 row g-2" style="display: <?= ($selectedPeriod == 'custom' ? 'flex' : 'none') ?>;">
-                        <div class="col-sm-6">
-                            <label for="data_inicio" class="form-label font-bold text-gray-700">Início</label>
-                            <input type="text" id="data_inicio" name="data_inicio" class="form-control" value="<?= htmlspecialchars($_POST['data_inicio'] ?? '') ?>" placeholder="dd/mm/aaaa">
-                        </div>
-                        <div class="col-sm-6">
-                            <label for="data_fim" class="form-label font-bold text-gray-700">Fim</label>
-                            <input type="text" id="data_fim" name="data_fim" class="form-control" value="<?= htmlspecialchars($_POST['data_fim'] ?? '') ?>" placeholder="dd/mm/aaaa">
-                        </div>
+                    <div class="d-inline-block text-start">
+                        <div id="heroLabelSecundario" class="small opacity-75">Despesas / Margem</div>
+                        <div id="heroValorSecundario" class="fs-5 fw-bold">R$ 0,00</div>
                     </div>
-                    <div class="col-md-2 d-grid">
-                        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow transition-all duration-300">Consultar</button>
-                    </div>
-                </form>
+                </div>
             </div>
         </div>
-
-
 
         <!-- KPIs 4 Colunas -->
-        <div class="row mb-4">
-            <div class="col-md-3 mb-3">
-                <div class="card shadow-sm kpi-card">
-                    <p class="kpi-label">RevPAR</p>
-                    <p class="kpi-value">R$ <?= number_format($revPar, 2, ',', '.') ?></p>
-                    <small class="text-muted">Receita por quarto</small>
+        <div class="row g-2 g-md-3 mb-3">
+            <div class="col-6 col-md-3">
+                <div class="kpi-card">
+                    <div class="kpi-label">RevPAR</div>
+                    <div class="kpi-value text-primary" id="kpiRevPar">R$ 0,00</div>
+                    <small class="text-muted" id="kpiRevParSub">Receita / quarto / dia</small>
                 </div>
             </div>
-            <div class="col-md-3 mb-3">
-                <div class="card shadow-sm kpi-card position-relative">
-                    <p class="kpi-label">Ticket Médio</p>
-                    <p class="kpi-value">R$ <?= number_format($ticketMedio, 2, ',', '.') ?></p>
-                    <?php if($crescimentoTicket != 0): ?>
-                        <span class="position-absolute top-0 end-0 mt-3 me-3 inline-flex items-center rounded-md px-2 py-1 text-xs font-bold <?= $crescimentoTicket > 0 ? 'bg-green-100 text-green-700 ring-1 ring-inset ring-green-600/20' : 'bg-red-100 text-red-700 ring-1 ring-inset ring-red-600/10' ?>">
-                            <?= $crescimentoTicket > 0 ? '▲' : '▼' ?> <?= number_format(abs($crescimentoTicket), 1, ',', '.') ?>% MoM
-                        </span>
-                    <?php endif; ?>
-                    <small class="text-muted">Receita média por loc.</small>
-                </div>
-            </div>
-            <div class="col-md-3 mb-3">
-                <div class="card shadow-sm kpi-card">
-                    <p class="kpi-label">Giro Diário</p>
-                    <p class="kpi-value"><?= number_format($giroDiario, 2, ',', '.') ?></p>
-                    <small class="text-muted">Locações/quarto/dia</small>
-                </div>
-            </div>
-            <div class="col-md-3 mb-3">
-                <div class="card shadow-sm kpi-card">
-                    <p class="kpi-label">Taxa de Ocupação</p>
-                    <p class="kpi-value"><?= number_format($taxaOcupacao, 1, ',', '.') ?>%</p>
-                    <small class="text-muted">Ref: Máx. de 4 Giros Dia</small>
-                </div>
-            </div>
-        </div>
-
-        <!-- Ocupação Semana vs Fds -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="card shadow-sm">
-                    <div class="card-body">
-                        <h5 class="card-title fw-bold text-secondary">Locações: Dias Úteis vs Finais de Semana</h5>
-                        <p class="text-muted mb-0">Total: <?= $locacoesAtual ?> locações no período.</p>
-                        <div class="progress mt-3" style="height: 25px; font-size: 1rem; font-weight: bold;">
-                            <?php 
-                                $percWeek = $locacoesAtual > 0 ? ($weekData['weekday'] / $locacoesAtual) * 100 : 0;
-                                $percWkend = $locacoesAtual > 0 ? ($weekData['weekend'] / $locacoesAtual) * 100 : 0;
-                            ?>
-                            <div class="progress-bar bg-primary" role="progressbar" style="width: <?= $percWeek ?>%">Dias Úteis (<?= $weekData['weekday'] ?>)</div>
-                            <div class="progress-bar bg-success" role="progressbar" style="width: <?= $percWkend ?>%">Finais de Semana (<?= $weekData['weekend'] ?>)</div>
-                        </div>
+            <div class="col-6 col-md-3">
+                <div class="kpi-card">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="kpi-label">Ticket Médio</div>
+                        <span id="kpiTicketBadge" class="badge rounded-pill"></span>
                     </div>
+                    <div class="kpi-value text-primary" id="kpiTicket">R$ 0,00</div>
+                    <small class="text-muted">Média por locação</small>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="kpi-card">
+                    <div class="kpi-label">Giro Diário</div>
+                    <div class="kpi-value text-primary" id="kpiGiro">0,00</div>
+                    <small class="text-muted" id="kpiGiroSub">Locações / quarto / dia</small>
+                </div>
+            </div>
+            <div class="col-6 col-md-3">
+                <div class="kpi-card">
+                    <div class="kpi-label">Taxa de Ocupação</div>
+                    <div class="kpi-value text-primary" id="kpiOcupacao">0,0%</div>
+                    <small class="text-muted">Ref: Máx. 4 giros/dia</small>
                 </div>
             </div>
         </div>
 
-        <!-- Mapa de Calor -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="card shadow-sm border-t-4 border-orange-500">
-                    <div class="card-header bg-white d-flex justify-content-between align-items-center">
-                        <h5 class="card-title fw-bold text-gray-700 mb-0">🔥 Mapa de Calor: Intensidade de Fluxo</h5>
-                        <button class="btn btn-sm btn-outline-secondary d-md-none" data-bs-toggle="modal" data-bs-target="#heatmapModal">
-                            🔍 Tela Cheia
+        <!-- MAPA DE CALOR INTERATIVO & DETECTOR DE GARGALOS -->
+        <div class="glass-panel mb-3 border-top border-4 border-warning">
+            <div class="d-flex flex-column flex-lg-row justify-content-between align-items-start align-items-lg-center gap-2 mb-3">
+                <div>
+                    <h5 class="fw-bold mb-1 text-dark">
+                        🔥 Mapa de Calor & Análise de Gargalos
+                        <span id="badgeFiltroHeatmap" class="badge bg-primary ms-1"> Geral (Todos os Quartos)</span>
+                    </h5>
+                    <p class="text-muted small mb-0">
+                        Alterne a visão abaixo para ver <strong>Horários de Entrada</strong>, <strong>Gargalo de Ocupação Simultânea (quando faltam quartos)</strong> ou <strong>Receita por Horário</strong>.
+                    </p>
+                </div>
+
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <div class="btn-group btn-group-sm" role="group" aria-label="Modo Mapa de Calor">
+                        <button type="button" class="btn btn-outline-dark active" id="btnModoEntradas" onclick="mudarModoHeatmap('entradas')">
+                            <i class="bi bi-box-arrow-in-right me-1"></i>Entradas (Check-in)
                         </button>
-                        <span class="text-xs text-gray-500 d-none d-md-inline">Cruzamento: Dia da Semana vs. Hora do Dia</span>
+                        <button type="button" class="btn btn-outline-danger" id="btnModoSimultaneo" onclick="mudarModoHeatmap('simultaneo')">
+                            <i class="bi bi-exclamation-diamond-fill me-1"></i>Gargalo (Ocupação Simultânea)
+                        </button>
+                        <button type="button" class="btn btn-outline-success" id="btnModoReceita" onclick="mudarModoHeatmap('receita')">
+                            <i class="bi bi-currency-dollar me-1"></i>Faturamento (R$)
+                        </button>
                     </div>
-                    <div class="card-body p-4">
-                        <div class="heatmap-container">
-                            <?php 
-                            // Função auxiliar para cores do heatmap
-                            function getThermalColor($val, $max) {
-                                if ($val <= 0 || $max <= 0) return ['bg' => '#f3f4f6', 'text' => '#9ca3af'];
-                                $ratio = $val / $max;
-                                if ($ratio < 0.15) return ['bg' => '#dbeafe', 'text' => '#1e40af']; // Light Blue
-                                if ($ratio < 0.35) return ['bg' => '#60a5fa', 'text' => '#eff6ff']; // Blue
-                                if ($ratio < 0.55) return ['bg' => '#4ade80', 'text' => '#064e3b']; // Green
-                                if ($ratio < 0.75) return ['bg' => '#facc15', 'text' => '#713f12']; // Yellow
-                                if ($ratio < 0.90) return ['bg' => '#fb923c', 'text' => '#fff'];    // Orange
-                                return ['bg' => '#f87171', 'text' => '#fff'];                    // Red
-                            }
-                            
-                            $renderHeatmap = function($heatmapData, $diasNomes, $maxHeatmapValue, $isDark = false) use (&$getThermalColor) {
-                                ?>
-                                <table class="heatmap-table">
-                                    <thead>
-                                        <tr>
-                                            <th></th>
-                                            <?php for($h=0; $h<24; $h++): ?>
-                                                <th class="heatmap-header" style="<?= $isDark ? 'color: #9ca3af' : '' ?>"><?= $h ?>h</th>
-                                            <?php endfor; ?>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php foreach($diasNomes as $numDia => $nomeDia): ?>
-                                            <tr>
-                                                <td class="heatmap-label" style="<?= $isDark ? 'color: #e5e7eb' : '' ?>"><?= $nomeDia ?></td>
-                                                <?php for($h=0; $h<24; $h++): 
-                                                    $val = $heatmapData[$numDia][$h];
-                                                    $colors = getThermalColor($val, $maxHeatmapValue);
-                                                ?>
-                                                    <td>
-                                                        <div class="heatmap-cell" 
-                                                             style="background-color: <?= $colors['bg'] ?>; color: <?= $colors['text'] ?>; <?= ($val == 0 && $isDark) ? 'background-color: #1f2937' : '' ?>"
-                                                             title="<?= $nomeDia ?>, <?= $h ?>h: <?= $val ?> locações">
-                                                            <?= $val > 0 ? $val : '' ?>
-                                                        </div>
-                                                    </td>
-                                                <?php endfor; ?>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
-                                <?php
-                            };
-                            
-                            $renderHeatmap($heatmapData, $diasNomes, $maxHeatmapValue);
-                            ?>
-                        </div>
-                        <div class="mt-4 d-flex align-items-center justify-content-center text-xs font-bold uppercase tracking-wider text-gray-400">
-                            <span class="mr-3">Menor Fluxo</span>
-                            <div class="flex space-x-1">
-                                <div class="w-6 h-3 rounded-full" style="background-color: #dbeafe"></div>
-                                <div class="w-6 h-3 rounded-full" style="background-color: #60a5fa"></div>
-                                <div class="w-6 h-3 rounded-full" style="background-color: #4ade80"></div>
-                                <div class="w-6 h-3 rounded-full" style="background-color: #facc15"></div>
-                                <div class="w-6 h-3 rounded-full" style="background-color: #fb923c"></div>
-                                <div class="w-6 h-3 rounded-full" style="background-color: #f87171"></div>
-                            </div>
-                            <span class="ml-3">Maior Fluxo</span>
-                        </div>
+                </div>
+            </div>
+
+            <!-- Painel Inteligente de Diagnóstico de Gargalo do Filtro Atual -->
+            <div id="painelGargaloInfo" class="alert alert-light border d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-2 py-2 px-3 mb-3">
+                <div id="textoDiagnosticoGargalo" class="small text-dark"></div>
+                <div id="badgePicoHeatmap" class="text-nowrap"></div>
+            </div>
+
+            <div class="heatmap-container">
+                <table class="heatmap-table">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <?php for ($h = 0; $h < 24; $h++): ?>
+                                <th class="heatmap-header"><?= $h ?>h</th>
+                            <?php endfor; ?>
+                        </tr>
+                    </thead>
+                    <tbody id="heatmapBody">
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="mt-3 d-flex flex-wrap align-items-center justify-content-between gap-2 text-muted small">
+                <span class="d-md-none"><i class="bi bi-arrows-expand-vertical"></i> Deslize a tabela para o lado para ver as 24h</span>
+                <div class="d-flex align-items-center mx-auto">
+                    <span class="me-2 fw-semibold">Menor Intensidade</span>
+                    <div class="d-flex gap-1">
+                        <span style="width:22px;height:12px;border-radius:6px;background:#dbeafe;display:inline-block;"></span>
+                        <span style="width:22px;height:12px;border-radius:6px;background:#60a5fa;display:inline-block;"></span>
+                        <span style="width:22px;height:12px;border-radius:6px;background:#4ade80;display:inline-block;"></span>
+                        <span style="width:22px;height:12px;border-radius:6px;background:#facc15;display:inline-block;"></span>
+                        <span style="width:22px;height:12px;border-radius:6px;background:#fb923c;display:inline-block;"></span>
+                        <span style="width:22px;height:12px;border-radius:6px;background:#ef4444;display:inline-block;"></span>
+                    </div>
+                    <span class="ms-2 fw-semibold">Pico / Gargalo Máximo</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Barra Dias Úteis vs Finais de Semana -->
+        <div class="glass-panel mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="fw-bold text-dark mb-0"><i class="bi bi-calendar-week text-primary me-1"></i> Distribuição: Dias Úteis vs. Finais de Semana</h6>
+                <span class="small text-muted" id="lblTotalLocacoesSemana">0 locações</span>
+            </div>
+            <div class="progress" style="height: 26px; font-weight: 700; font-size: 0.85rem;">
+                <div id="barWeekday" class="progress-bar bg-primary" role="progressbar" style="width: 50%">Dias Úteis</div>
+                <div id="barWeekend" class="progress-bar bg-success" role="progressbar" style="width: 50%">Fim de Semana</div>
+            </div>
+        </div>
+
+        <!-- Gráficos Linha 1: Horário de Pico + Mix de Categoria -->
+        <div class="row g-3 mb-3">
+            <div class="col-12 col-lg-8">
+                <div class="glass-panel h-100">
+                    <h6 class="fw-bold text-dark mb-3">
+                        <i class="bi bi-clock-fill text-primary me-1"></i> Curva de Demanda por Hora do Dia (0h às 23h)
+                    </h6>
+                    <div class="chart-container">
+                        <canvas id="chartHorarios"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-lg-4">
+                <div class="glass-panel h-100">
+                    <h6 class="fw-bold text-dark mb-3">
+                        <i class="bi bi-pie-chart-fill text-success me-1"></i> Mix de Ocupação por Categoria
+                    </h6>
+                    <div class="chart-container">
+                        <canvas id="chartMix"></canvas>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Modal Heatmap Fullscreen -->
-        <div class="modal fade" id="heatmapModal" tabindex="-1" aria-hidden="true">
-            <div class="modal-dialog modal-fullscreen">
-                <div class="modal-content border-0">
-                    <div class="modal-header bg-gray-900 text-white border-0">
-                        <h5 class="modal-title font-bold">🔥 Mapa de Calor Completo</h5>
-                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body modal-heatmap-body p-3">
-                        <div class="rotate-hint text-center text-sm">
-                            📱 <b>Dica:</b> Gire o celular para o modo <b>Paisagem</b> para ver melhor todos os horários!
-                        </div>
-                        <div class="heatmap-container">
-                            <?php $renderHeatmap($heatmapData, $diasNomes, $maxHeatmapValue, true); ?>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Gráficos -->
-        <div class="row mb-4">
-            <div class="col-md-8 mb-3">
-                <div class="card shadow-sm h-100">
-                    <div class="card-header bg-light fw-bold">Horário de Pico (Entradas)</div>
-                    <div class="card-body">
-                        <div class="chart-container">
-                            <canvas id="chartHorarios"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-4 mb-3">
-                <div class="card shadow-sm h-100">
-                    <div class="card-header bg-light fw-bold">Mix de Categoria</div>
-                    <div class="card-body">
-                        <div class="chart-container">
-                            <canvas id="chartMix"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Ranking, Destino e Insights -->
-        <div class="row mb-4">
-            <div class="col-md-4 mb-3">
-                <div class="card shadow-sm h-100 border-t-4 border-green-500">
-                    <div class="card-header bg-white fw-bold text-gray-700">📊 Destino do seu Faturamento</div>
-                    <div class="card-body">
-                        <div class="chart-container">
-                            <canvas id="chartDestino"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="col-md-4 mb-3">
-                <div class="card shadow-sm h-100 border-t-4 border-yellow-500">
-                    <div class="card-header bg-white fw-bold text-gray-700">🏆 Faturamento por Quarto</div>
-                    <div class="card-body">
-                        <div class="chart-container">
-                            <canvas id="chartRanking"></canvas>
-                        </div>
+        <!-- Gráficos Linha 2: Ranking por Quarto + Pressão de Demanda por Categoria + Destino do Faturamento -->
+        <div class="row g-3 mb-4">
+            <div class="col-12 col-lg-4">
+                <div class="glass-panel h-100">
+                    <h6 class="fw-bold text-dark mb-3">
+                        <i class="bi bi-trophy-fill text-warning me-1"></i> Ranking de Receita por Quarto
+                    </h6>
+                    <div class="chart-container">
+                        <canvas id="chartRanking"></canvas>
                     </div>
                 </div>
             </div>
 
-            <div class="col-md-4 mb-3">
-                <div class="card shadow-sm h-100 border-t-4 border-purple-500">
-                    <div class="card-header bg-white fw-bold text-gray-700">🧠 Sócio de Gestão Virtual</div>
-                    <div class="card-body overflow-y-auto" style="max-height: 380px;">
-                        <?php foreach($insights as $insight): ?>
-                            <div class="ai-insight bg-purple-50/50 border-l-4 border-purple-500 p-3 mb-3 rounded shadow-sm text-sm text-gray-800 leading-relaxed">
-                                <?= $insight ?>
-                            </div>
-                        <?php endforeach; ?>
-                        <?php if(empty($insights)): ?>
-                            <div class="ai-insight">Aguardando geração de diagnósticos...</div>
-                        <?php endif; ?>
+            <div class="col-12 col-lg-4">
+                <div class="glass-panel h-100">
+                    <h6 class="fw-bold text-dark mb-2">
+                        <i class="bi bi-speedometer2 text-danger me-1"></i> Gargalo por Categoria (Giro por Suíte)
+                    </h6>
+                    <p class="text-muted small mb-2">Mostra quais tipos de suíte sofrem maior pressão de demanda por quarto disponível:</p>
+                    <div id="listaPressaoCategorias"></div>
+                </div>
+            </div>
+
+            <div class="col-12 col-lg-4">
+                <div class="glass-panel h-100">
+                    <h6 class="fw-bold text-dark mb-3">
+                        <i class="bi bi-cash-coin text-success me-1"></i> Destino do Faturamento Geral
+                    </h6>
+                    <div class="chart-container">
+                        <canvas id="chartDestino"></canvas>
                     </div>
                 </div>
             </div>
@@ -753,123 +787,559 @@ $conexao->close();
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        $(document).ready(function() {
-            // Filtro customizado behavior
-            $("#period").change(function () {
-                if ($(this).val() === 'custom') {
-                    $("#custom_period").slideDown();
-                } else {
-                    $("#custom_period").slideUp();
+        let PERF_DATA = <?= json_encode($initialPayload) ?>;
+        let modoHeatmapAtual = 'entradas'; // 'entradas' | 'simultaneo' | 'receita'
+
+        let chartHorariosInst = null;
+        let chartMixInst = null;
+        let chartRankingInst = null;
+        let chartDestinoInst = null;
+
+        const DIAS_NOMES = { 1: 'Dom', 2: 'Seg', 3: 'Ter', 4: 'Qua', 5: 'Qui', 6: 'Sex', 7: 'Sáb' };
+        const DIAS_COMPLETOS = { 1: 'Domingo', 2: 'Segunda', 3: 'Terça', 4: 'Quarta', 5: 'Quinta', 6: 'Sexta', 7: 'Sábado' };
+
+        function formatBRL(v) {
+            return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function popularSelectsQuartosECategorias() {
+            const selCat = document.getElementById('filtroCategoria');
+            const selQuarto = document.getElementById('filtroQuarto');
+            const catAtual = selCat.value;
+            const quartoAtual = selQuarto.value;
+
+            // Categorias
+            selCat.innerHTML = '<option value="all">Todas as Categorias (' + PERF_DATA.quartos.length + ' suítes)</option>';
+            Object.keys(PERF_DATA.categorias_qtd).forEach(cat => {
+                const qtd = PERF_DATA.categorias_qtd[cat];
+                const opt = document.createElement('option');
+                opt.value = cat;
+                opt.textContent = `${cat} (${qtd} ${qtd > 1 ? 'suítes' : 'suíte'})`;
+                selCat.appendChild(opt);
+            });
+            if ([...selCat.options].some(o => o.value === catAtual)) {
+                selCat.value = catAtual;
+            }
+
+            atualizarOpcoesSelectQuarto(quartoAtual);
+        }
+
+        function atualizarOpcoesSelectQuarto(manterValor = 'all') {
+            const selCat = document.getElementById('filtroCategoria').value;
+            const selQuarto = document.getElementById('filtroQuarto');
+            selQuarto.innerHTML = '<option value="all">Todos os Quartos</option>';
+
+            PERF_DATA.quartos.forEach(q => {
+                if (selCat === 'all' || q.tipo === selCat) {
+                    const opt = document.createElement('option');
+                    opt.value = String(q.numero);
+                    opt.textContent = `Quarto ${q.numero} (${q.tipo})`;
+                    selQuarto.appendChild(opt);
                 }
             });
 
+            if ([...selQuarto.options].some(o => o.value === String(manterValor))) {
+                selQuarto.value = String(manterValor);
+            } else {
+                selQuarto.value = 'all';
+            }
+        }
+
+        function resetarFiltrosLocais() {
+            document.getElementById('filtroCategoria').value = 'all';
+            atualizarOpcoesSelectQuarto('all');
+            document.getElementById('filtroModalidade').value = 'all';
+            aplicarFiltrosInstantaneos();
+        }
+
+        function mudarModoHeatmap(novoModo) {
+            modoHeatmapAtual = novoModo;
+            document.getElementById('btnModoEntradas').classList.toggle('active', novoModo === 'entradas');
+            document.getElementById('btnModoSimultaneo').classList.toggle('active', novoModo === 'simultaneo');
+            document.getElementById('btnModoReceita').classList.toggle('active', novoModo === 'receita');
+            aplicarFiltrosInstantaneos();
+        }
+
+        function getThermalColor(val, max) {
+            if (val <= 0 || max <= 0) return { bg: '#f1f5f9', text: '#94a3b8' };
+            const ratio = val / max;
+            if (ratio < 0.18) return { bg: '#dbeafe', text: '#1e40af' };
+            if (ratio < 0.35) return { bg: '#60a5fa', text: '#ffffff' };
+            if (ratio < 0.55) return { bg: '#4ade80', text: '#064e3b' };
+            if (ratio < 0.75) return { bg: '#facc15', text: '#713f12' };
+            if (ratio < 0.90) return { bg: '#fb923c', text: '#ffffff' };
+            return { bg: '#ef4444', text: '#ffffff' };
+        }
+
+        function filtrarListaLocacoes(lista, catFiltro, quartoFiltro, modFiltro) {
+            return lista.filter(loc => {
+                if (catFiltro !== 'all' && loc.t !== catFiltro) return false;
+                if (quartoFiltro !== 'all' && String(loc.q) !== String(quartoFiltro)) return false;
+                if (modFiltro === 'periodo' && loc.p === 1) return false;
+                if (modFiltro === 'pernoite' && loc.p === 0) return false;
+                return true;
+            });
+        }
+
+        function aplicarFiltrosInstantaneos() {
+            const catFiltro = document.getElementById('filtroCategoria').value;
+            const quartoFiltro = document.getElementById('filtroQuarto').value;
+            const modFiltro = document.getElementById('filtroModalidade').value;
+            const temFiltroQuartoOuCat = (catFiltro !== 'all' || quartoFiltro !== 'all' || modFiltro !== 'all');
+
+            document.getElementById('lblPeriodoAtivo').textContent = `${PERF_DATA.data_inicio_fmt} a ${PERF_DATA.data_fim_fmt}`;
+            document.getElementById('lblDiasAtivos').textContent = PERF_DATA.dias;
+
+            // Quantidade de quartos considerados no denominador (RevPAR e Giro)
+            let qtdQuartosEscopo = PERF_DATA.quartos.length || 1;
+            if (quartoFiltro !== 'all') {
+                qtdQuartosEscopo = 1;
+            } else if (catFiltro !== 'all') {
+                qtdQuartosEscopo = PERF_DATA.categorias_qtd[catFiltro] || 1;
+            }
+
+            // Atualiza badge de escopo do Mapa de Calor
+            let labelEscopo = 'Geral (Todos os Quartos)';
+            if (quartoFiltro !== 'all') {
+                const qObj = PERF_DATA.quartos.find(x => String(x.numero) === String(quartoFiltro));
+                labelEscopo = `Quarto ${quartoFiltro}` + (qObj ? ` (${qObj.tipo})` : '');
+            } else if (catFiltro !== 'all') {
+                labelEscopo = `Categoria: ${catFiltro} (${qtdQuartosEscopo} suítes)`;
+            }
+            if (modFiltro !== 'all') {
+                labelEscopo += ` • ${modFiltro === 'pernoite' ? 'Pernoites' : 'Períodos'}`;
+            }
+            document.getElementById('badgeFiltroHeatmap').textContent = labelEscopo;
+
+            // Filtra locações atuais e do período anterior (MoM)
+            const locacoesFiltradas = filtrarListaLocacoes(PERF_DATA.locacoes, catFiltro, quartoFiltro, modFiltro);
+            const prevFiltradas = filtrarListaLocacoes(PERF_DATA.prev_locacoes, catFiltro, quartoFiltro, modFiltro);
+
+            const somaLocacoesVal = locacoesFiltradas.reduce((acc, l) => acc + l.val, 0);
+            const faturamentoEscopo = temFiltroQuartoOuCat ? somaLocacoesVal : (somaLocacoesVal + Number(PERF_DATA.vendas_avulsas || 0));
+
+            const somaPrevVal = prevFiltradas.reduce((acc, l) => acc + l.val, 0);
+            const faturamentoPrevEscopo = temFiltroQuartoOuCat ? somaPrevVal : (somaPrevVal + Number(PERF_DATA.prev_vendas_avulsas || 0));
+
+            const totalLoc = locacoesFiltradas.length;
+            const totalPrevLoc = prevFiltradas.length;
+            const dias = Math.max(1, Number(PERF_DATA.dias || 1));
+
+            // Atualiza Hero Banner
+            const heroBanner = document.getElementById('heroBanner');
+            if (!temFiltroQuartoOuCat) {
+                heroBanner.classList.remove('filtered-mode');
+                const lucroLiq = faturamentoEscopo - Number(PERF_DATA.total_despesas || 0);
+                const margem = faturamentoEscopo > 0 ? ((lucroLiq / faturamentoEscopo) * 100) : 0;
+                document.getElementById('heroTitulo').innerHTML = '💰 Lucro Líquido Real do Período';
+                document.getElementById('heroValor').textContent = formatBRL(lucroLiq);
+                document.getElementById('heroSubtitulo').textContent = 'Faturamento bruto descontando todas as despesas e sangrias lançadas no Fluxo de Caixa.';
+                document.getElementById('heroFatBruto').textContent = formatBRL(faturamentoEscopo);
+                document.getElementById('heroLabelSecundario').textContent = 'Despesas / Margem';
+                document.getElementById('heroValorSecundario').textContent = `${formatBRL(PERF_DATA.total_despesas)} (${margem.toFixed(1).replace('.', ',')}%)`;
+            } else {
+                heroBanner.classList.add('filtered-mode');
+                const fatTotalGeral = PERF_DATA.locacoes.reduce((a, b) => a + b.val, 0) + Number(PERF_DATA.vendas_avulsas || 0);
+                const partReceita = fatTotalGeral > 0 ? ((faturamentoEscopo / fatTotalGeral) * 100) : 0;
+                document.getElementById('heroTitulo').innerHTML = '🎯 Receita Gerada pelo Filtro: ' + labelEscopo;
+                document.getElementById('heroValor').textContent = formatBRL(faturamentoEscopo);
+                document.getElementById('heroSubtitulo').textContent = `Representa ${partReceita.toFixed(1).replace('.', ',')}% do faturamento total do motel neste período (${totalLoc} locações).`;
+                document.getElementById('heroFatBruto').textContent = `${totalLoc} locações`;
+                document.getElementById('heroLabelSecundario').textContent = 'Tempo Médio / Estadia';
+                const mediaMin = totalLoc > 0 ? (locacoesFiltradas.reduce((a, b) => a + b.dur, 0) / totalLoc) : 0;
+                const hMed = Math.floor(mediaMin / 60);
+                const mMed = Math.round(mediaMin % 60);
+                document.getElementById('heroValorSecundario').textContent = `${hMed}h ${mMed}min`;
+            }
+
+            // KPIs
+            const revPar = faturamentoEscopo / (qtdQuartosEscopo * dias);
+            const ticketMedio = totalLoc > 0 ? (faturamentoEscopo / totalLoc) : 0;
+            const ticketPrev = totalPrevLoc > 0 ? (faturamentoPrevEscopo / totalPrevLoc) : 0;
+            const giroDiario = totalLoc / (qtdQuartosEscopo * dias);
+            const taxaOcupacao = Math.min(100, (giroDiario / 4) * 100);
+
+            document.getElementById('kpiRevPar').textContent = formatBRL(revPar);
+            document.getElementById('kpiRevParSub').textContent = `Em ${qtdQuartosEscopo} ${qtdQuartosEscopo > 1 ? 'suítes' : 'suíte'}`;
+            document.getElementById('kpiTicket').textContent = formatBRL(ticketMedio);
+            document.getElementById('kpiGiro').textContent = giroDiario.toFixed(2).replace('.', ',');
+            document.getElementById('kpiGiroSub').textContent = `${totalLoc} locações no período`;
+            document.getElementById('kpiOcupacao').textContent = taxaOcupacao.toFixed(1).replace('.', ',') + '%';
+
+            const badgeTicket = document.getElementById('kpiTicketBadge');
+            if (ticketPrev > 0) {
+                const diffPerc = ((ticketMedio - ticketPrev) / ticketPrev) * 100;
+                badgeTicket.className = 'badge rounded-pill ' + (diffPerc >= 0 ? 'bg-success-subtle text-success' : 'bg-danger-subtle text-danger');
+                badgeTicket.textContent = (diffPerc >= 0 ? '▲ ' : '▼ ') + Math.abs(diffPerc).toFixed(1).replace('.', ',') + '%';
+            } else {
+                badgeTicket.textContent = '';
+            }
+
+            // Dias Úteis vs Fim de Semana
+            let weekendCount = 0;
+            let weekdayCount = 0;
+            locacoesFiltradas.forEach(l => {
+                if (l.d === 1 || l.d === 7 || (l.d === 6 && l.h >= 18)) {
+                    weekendCount++;
+                } else {
+                    weekdayCount++;
+                }
+            });
+            const percWeek = totalLoc > 0 ? ((weekdayCount / totalLoc) * 100) : 50;
+            const percWkend = totalLoc > 0 ? ((weekendCount / totalLoc) * 100) : 50;
+            document.getElementById('lblTotalLocacoesSemana').textContent = `${totalLoc} locações filtradas`;
+            const barW = document.getElementById('barWeekday');
+            const barE = document.getElementById('barWeekend');
+            barW.style.width = percWeek.toFixed(1) + '%';
+            barW.textContent = `Dias Úteis: ${weekdayCount} (${percWeek.toFixed(0)}%)`;
+            barE.style.width = percWkend.toFixed(1) + '%';
+            barE.textContent = `Fim de Semana: ${weekendCount} (${percWkend.toFixed(0)}%)`;
+
+            // Construir Matriz do Mapa de Calor (7 dias x 24 horas) e Curva Horária (0..23)
+            const matrix = {};
+            for (let d = 1; d <= 7; d++) {
+                matrix[d] = new Array(24).fill(0);
+            }
+            const curvaHoraria = new Array(24).fill(0);
+
+            locacoesFiltradas.forEach(l => {
+                if (modoHeatmapAtual === 'entradas') {
+                    matrix[l.d][l.h] += 1;
+                    curvaHoraria[l.h] += 1;
+                } else if (modoHeatmapAtual === 'receita') {
+                    matrix[l.d][l.h] += l.val;
+                    curvaHoraria[l.h] += l.val;
+                } else if (modoHeatmapAtual === 'simultaneo') {
+                    // Ocupação Simultânea (Permanência real): marca todas as horas em que o quarto esteve ocupado!
+                    const horasOcupadas = Math.min(24, Math.max(1, Math.ceil(l.dur / 60)));
+                    for (let step = 0; step < horasOcupadas; step++) {
+                        const tsHora = l.ini + (step * 3600);
+                        const dt = new Date(tsHora * 1000);
+                        const diaS = dt.getDay() + 1;
+                        const horaD = dt.getHours();
+                        matrix[diaS][horaD] += 1;
+                        curvaHoraria[horaD] += 1;
+                    }
+                }
+            });
+
+            let maxHeat = 0;
+            let picoDia = 1;
+            let picoHora = 0;
+            for (let d = 1; d <= 7; d++) {
+                for (let h = 0; h < 24; h++) {
+                    if (matrix[d][h] > maxHeat) {
+                        maxHeat = matrix[d][h];
+                        picoDia = d;
+                        picoHora = h;
+                    }
+                }
+            }
+
+            // Renderizar Tabela do Mapa de Calor
+            const tbody = document.getElementById('heatmapBody');
+            tbody.innerHTML = '';
+            for (let d = 1; d <= 7; d++) {
+                const tr = document.createElement('tr');
+                const tdLabel = document.createElement('td');
+                tdLabel.className = 'heatmap-label';
+                tdLabel.textContent = DIAS_NOMES[d];
+                tr.appendChild(tdLabel);
+
+                for (let h = 0; h < 24; h++) {
+                    const val = matrix[d][h];
+                    const colors = getThermalColor(val, maxHeat);
+                    const td = document.createElement('td');
+                    const div = document.createElement('div');
+                    div.className = 'heatmap-cell';
+                    div.style.backgroundColor = colors.bg;
+                    div.style.color = colors.text;
+
+                    if (val > 0) {
+                        if (modoHeatmapAtual === 'receita') {
+                            div.textContent = val >= 1000 ? (val / 1000).toFixed(1) + 'k' : Math.round(val);
+                            div.title = `${DIAS_COMPLETOS[d]} às ${h}h: ${formatBRL(val)}`;
+                        } else if (modoHeatmapAtual === 'simultaneo') {
+                            div.textContent = val;
+                            div.title = `${DIAS_COMPLETOS[d]} às ${h}h: ${val} ocupações simultâneas acumuladas no período`;
+                        } else {
+                            div.textContent = val;
+                            div.title = `${DIAS_COMPLETOS[d]} às ${h}h: ${val} entradas (check-ins)`;
+                        }
+                    } else {
+                        div.title = `${DIAS_COMPLETOS[d]} às ${h}h: Sem movimento`;
+                    }
+
+                    td.appendChild(div);
+                    tr.appendChild(td);
+                }
+                tbody.appendChild(tr);
+            }
+
+            // Diagnóstico Automático de Gargalo no Topo do Mapa de Calor
+            const diagEl = document.getElementById('textoDiagnosticoGargalo');
+            const badgePicoEl = document.getElementById('badgePicoHeatmap');
+            if (maxHeat > 0) {
+                const semanasNoPeriodo = Math.max(1, dias / 7);
+                if (modoHeatmapAtual === 'simultaneo') {
+                    const mediaSimultaneaNoPico = (maxHeat / semanasNoPeriodo);
+                    const lotacaoPerc = Math.min(100, Math.round((mediaSimultaneaNoPico / qtdQuartosEscopo) * 100));
+                    diagEl.innerHTML = `<i class="bi bi-exclamation-triangle-fill text-danger me-1"></i> <strong>Ponto de Maior Gargalo (${labelEscopo}):</strong> Nas <strong>${DIAS_COMPLETOS[picoDia]}s às ${picoHora}h</strong> ocorre a maior concentração de suítes ocupadas ao mesmo tempo (${maxHeat} ocupações acumuladas / média de <strong>~${mediaSimultaneaNoPico.toFixed(1)} de ${qtdQuartosEscopo} suítes</strong> ocupadas simultaneamente nesse horário).`;
+                    badgePicoEl.innerHTML = `<span class="badge ${lotacaoPerc >= 80 ? 'bg-danger' : 'bg-warning text-dark'} fs-6">Pico: ${DIAS_NOMES[picoDia]} ${picoHora}h (~${lotacaoPerc}% lotação)</span>`;
+                } else if (modoHeatmapAtual === 'receita') {
+                    diagEl.innerHTML = `<i class="bi bi-cash-coin text-success me-1"></i> <strong>Horário Mais Lucrativo (${labelEscopo}):</strong> O pico de geração de receita ocorre nas <strong>${DIAS_COMPLETOS[picoDia]}s às ${picoHora}h</strong>, acumulando <strong>${formatBRL(maxHeat)}</strong> nas locações iniciadas nessa faixa.`;
+                    badgePicoEl.innerHTML = `<span class="badge bg-success fs-6">Pico: ${DIAS_NOMES[picoDia]} ${picoHora}h (${formatBRL(maxHeat)})</span>`;
+                } else {
+                    diagEl.innerHTML = `<i class="bi bi-lightning-charge-fill text-primary me-1"></i> <strong>Horário de Pico de Entrada (${labelEscopo}):</strong> O maior fluxo de chegada de clientes ocorre nas <strong>${DIAS_COMPLETOS[picoDia]}s às ${picoHora}h</strong> com <strong>${maxHeat} entradas</strong> registradas no período.`;
+                    badgePicoEl.innerHTML = `<span class="badge bg-primary fs-6">Pico: ${DIAS_NOMES[picoDia]} ${picoHora}h (${maxHeat} entradas)</span>`;
+                }
+            } else {
+                diagEl.innerHTML = `<span class="text-muted">Nenhuma locação encontrada para a combinação de filtros selecionada.</span>`;
+                badgePicoEl.innerHTML = '';
+            }
+
+            // Atualizar Gráficos Chart.js e Painel de Pressão de Demanda por Categoria
+            atualizarGraficos(locacoesFiltradas, curvaHoraria, dias);
+        }
+
+        function atualizarGraficos(locacoesFiltradas, curvaHoraria, dias) {
+            // 1. Gráfico de Curva Horária (0h às 23h)
+            const ctxH = document.getElementById('chartHorarios').getContext('2d');
+            if (chartHorariosInst) chartHorariosInst.destroy();
+            chartHorariosInst = new Chart(ctxH, {
+                type: 'bar',
+                data: {
+                    labels: Array.from({ length: 24 }, (_, i) => i + 'h'),
+                    datasets: [{
+                        label: modoHeatmapAtual === 'receita' ? 'Receita (R$)' : (modoHeatmapAtual === 'simultaneo' ? 'Ocupações Simultâneas' : 'Entradas (Check-ins)'),
+                        data: curvaHoraria,
+                        backgroundColor: modoHeatmapAtual === 'simultaneo' ? '#ef4444' : (modoHeatmapAtual === 'receita' ? '#10b981' : '#2563eb'),
+                        borderRadius: 5
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { display: false } },
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+
+            // 2. Gráfico Mix de Categoria & Lista de Pressão de Gargalo por Categoria
+            const contagemPorCat = {};
+            Object.keys(PERF_DATA.categorias_qtd).forEach(c => contagemPorCat[c] = 0);
+            locacoesFiltradas.forEach(l => {
+                contagemPorCat[l.t] = (contagemPorCat[l.t] || 0) + 1;
+            });
+
+            const labelsCat = Object.keys(contagemPorCat).filter(c => contagemPorCat[c] > 0);
+            const valoresCat = labelsCat.map(c => contagemPorCat[c]);
+
+            const ctxM = document.getElementById('chartMix').getContext('2d');
+            if (chartMixInst) chartMixInst.destroy();
+            chartMixInst = new Chart(ctxM, {
+                type: 'doughnut',
+                data: {
+                    labels: labelsCat,
+                    datasets: [{
+                        data: valoresCat,
+                        backgroundColor: ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom' } }
+                }
+            });
+
+            // Painel de Pressão de Demanda por Categoria (Giro por suíte de cada tipo!)
+            const containerPressao = document.getElementById('listaPressaoCategorias');
+            containerPressao.innerHTML = '';
+            const listaPressao = Object.keys(PERF_DATA.categorias_qtd).map(cat => {
+                const qtdSuites = PERF_DATA.categorias_qtd[cat] || 1;
+                const locsCat = PERF_DATA.locacoes.filter(l => l.t === cat).length;
+                const giroCat = locsCat / (qtdSuites * dias);
+                const locPorSuite = locsCat / qtdSuites;
+                return { cat, qtdSuites, locsCat, giroCat, locPorSuite };
+            }).sort((a, b) => b.giroCat - a.giroCat);
+
+            const maxGiroCat = listaPressao.length > 0 ? Math.max(0.01, listaPressao[0].giroCat) : 1;
+
+            listaPressao.forEach((item, idx) => {
+                const percBarra = Math.min(100, Math.round((item.giroCat / maxGiroCat) * 100));
+                const corBarra = idx === 0 ? 'bg-danger' : (idx === 1 ? 'bg-warning' : 'bg-primary');
+                const div = document.createElement('div');
+                div.className = 'mb-3 p-2 rounded border bg-light';
+                div.style.cursor = 'pointer';
+                div.title = 'Clique para filtrar o Mapa de Calor por esta categoria';
+                div.onclick = () => {
+                    document.getElementById('filtroCategoria').value = item.cat;
+                    atualizarOpcoesSelectQuarto('all');
+                    aplicarFiltrosInstantaneos();
+                };
+                div.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="fw-bold text-dark">${item.cat} <span class="badge bg-secondary-subtle text-secondary">${item.qtdSuites} ${item.qtdSuites > 1 ? 'suítes' : 'suíte'}</span></span>
+                        <span class="fw-bold ${idx === 0 ? 'text-danger' : 'text-primary'}">${item.locPorSuite.toFixed(1).replace('.', ',')} loc/suíte</span>
+                    </div>
+                    <div class="progress" style="height: 7px;">
+                        <div class="progress-bar ${corBarra}" style="width: ${percBarra}%"></div>
+                    </div>
+                    <div class="d-flex justify-content-between text-muted mt-1" style="font-size: 0.75rem;">
+                        <span>Total: ${item.locsCat} locações</span>
+                        <span>Giro: ${item.giroCat.toFixed(2).replace('.', ',')} / dia</span>
+                    </div>
+                `;
+                containerPressao.appendChild(div);
+            });
+
+            // 3. Gráfico Ranking de Receita por Quarto
+            const receitaPorQuarto = {};
+            locacoesFiltradas.forEach(l => {
+                receitaPorQuarto[l.q] = (receitaPorQuarto[l.q] || 0) + l.val;
+            });
+            const quartosOrdenados = Object.keys(receitaPorQuarto)
+                .map(q => ({ q, val: receitaPorQuarto[q] }))
+                .sort((a, b) => b.val - a.val);
+
+            const ctxR = document.getElementById('chartRanking').getContext('2d');
+            if (chartRankingInst) chartRankingInst.destroy();
+            chartRankingInst = new Chart(ctxR, {
+                type: 'bar',
+                data: {
+                    labels: quartosOrdenados.map(x => 'Quarto ' + x.q),
+                    datasets: [{
+                        label: 'Receita (R$)',
+                        data: quartosOrdenados.map(x => Number(x.val.toFixed(2))),
+                        backgroundColor: '#10b981',
+                        borderRadius: 5
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } }
+                }
+            });
+
+            // 4. Gráfico Destino do Faturamento
+            const fatTotalBruto = PERF_DATA.locacoes.reduce((a, b) => a + b.val, 0) + Number(PERF_DATA.vendas_avulsas || 0);
+            const lucroLiquidoGeral = fatTotalBruto - Number(PERF_DATA.total_despesas || 0);
+            const destLabels = PERF_DATA.despesas_categorias.map(d => d.categoria);
+            const destValues = PERF_DATA.despesas_categorias.map(d => d.valor);
+            if (lucroLiquidoGeral > 0) {
+                destLabels.push('Lucro Líquido');
+                destValues.push(Number(lucroLiquidoGeral.toFixed(2)));
+            }
+
+            const ctxD = document.getElementById('chartDestino').getContext('2d');
+            if (chartDestinoInst) chartDestinoInst.destroy();
+            chartDestinoInst = new Chart(ctxD, {
+                type: 'doughnut',
+                data: {
+                    labels: destLabels,
+                    datasets: [{
+                        data: destValues,
+                        backgroundColor: ['#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#10b981'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom' } }
+                }
+            });
+        }
+
+        function carregarPeriodoAjax() {
+            const p = document.getElementById('period').value;
+            const di = document.getElementById('data_inicio').value;
+            const df = document.getElementById('data_fim').value;
+
+            if (p === 'custom' && (!di || !df)) {
+                return;
+            }
+
+            document.getElementById('loadingIndicator').style.display = 'block';
+            const url = `performance.php?ajax=1&period=${encodeURIComponent(p)}&data_inicio=${encodeURIComponent(di)}&data_fim=${encodeURIComponent(df)}`;
+
+            fetch(url)
+                .then(r => r.json())
+                .then(data => {
+                    PERF_DATA = data;
+                    popularSelectsQuartosECategorias();
+                    aplicarFiltrosInstantaneos();
+                })
+                .catch(err => console.error('Erro ao atualizar período:', err))
+                .finally(() => {
+                    document.getElementById('loadingIndicator').style.display = 'none';
+                });
+        }
+
+        function exportToWhats() {
+            const escopo = document.getElementById('badgeFiltroHeatmap').textContent.trim();
+            const periodo = document.getElementById('lblPeriodoAtivo').textContent.trim();
+            const valorPrincipal = document.getElementById('heroValor').textContent.trim();
+            const tituloPrincipal = document.getElementById('heroTitulo').textContent.trim();
+            const ticket = document.getElementById('kpiTicket').textContent.trim();
+            const giro = document.getElementById('kpiGiro').textContent.trim();
+            const ocupacao = document.getElementById('kpiOcupacao').textContent.trim();
+            const gargalo = document.getElementById('textoDiagnosticoGargalo').innerText.trim();
+
+            let texto = `*📊 Relatório de Performance - Motel Inteligente*\n`;
+            texto += `_Período: ${periodo}_\n`;
+            texto += `_Filtro: ${escopo}_\n\n`;
+            texto += `*${tituloPrincipal}:* ${valorPrincipal}\n`;
+            texto += `*Ticket Médio:* ${ticket}\n`;
+            texto += `*Giro Diário:* ${giro} loc/quarto/dia\n`;
+            texto += `*Taxa de Ocupação:* ${ocupacao}\n\n`;
+            if (gargalo) {
+                texto += `*🔥 Diagnóstico de Fluxo:*\n${gargalo}\n`;
+            }
+
+            const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(texto)}`;
+            window.open(url, '_blank');
+        }
+
+        $(document).ready(function() {
             $("#data_inicio, #data_fim").datepicker({
                 dateFormat: 'dd/mm/yy',
                 dayNames: ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'],
                 dayNamesMin: ['D','S','T','Q','Q','S','S'],
                 monthNames: ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'],
-                monthNamesShort: ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'],
-            });
-            
-            // Gráficos com Chart.js
-            const ctxHorarios = document.getElementById('chartHorarios').getContext('2d');
-            new Chart(ctxHorarios, {
-                type: 'bar',
-                data: {
-                    labels: <?= json_encode($labelsHorarios) ?>.map(h => h + 'h'),
-                    datasets: [{
-                        label: 'Número de Entradas',
-                        data: <?= json_encode($dataHorarios) ?>,
-                        backgroundColor: '#0d6efd',
-                        borderRadius: 4
-                    }]
-                },
-                options: { responsive: true, maintainAspectRatio: false }
+                monthNamesShort: ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
             });
 
-            const ctxMix = document.getElementById('chartMix').getContext('2d');
-            new Chart(ctxMix, {
-                type: 'doughnut',
-                data: {
-                    labels: <?= json_encode($labelsTipos) ?>,
-                    datasets: [{
-                        data: <?= json_encode($dataTipos) ?>,
-                        backgroundColor: ['#0d6efd', '#198754', '#ffc107', '#dc3545', '#6f42c1'],
-                    }]
-                },
-                options: { responsive: true, maintainAspectRatio: false }
-            });
-
-            const ctxRanking = document.getElementById('chartRanking').getContext('2d');
-            new Chart(ctxRanking, {
-                type: 'bar',
-                data: {
-                    labels: <?= json_encode($labelsRanking) ?>,
-                    datasets: [{
-                        label: 'Receita (R$)',
-                        data: <?= json_encode($dataRanking) ?>,
-                        backgroundColor: '#10b981',
-                        borderRadius: 4
-                    }]
-                },
-                options: { 
-                    responsive: true, 
-                    maintainAspectRatio: false,
-                    indexAxis: 'y'
+            // Ao trocar o período no select, já busca via AJAX na hora (sem recarregar a página!)
+            $('#period').on('change', function() {
+                if ($(this).val() === 'custom') {
+                    $('#custom_period').slideDown(150);
+                } else {
+                    $('#custom_period').slideUp(150);
+                    carregarPeriodoAjax();
                 }
             });
 
-            const ctxDestino = document.getElementById('chartDestino').getContext('2d');
-            new Chart(ctxDestino, {
-                type: 'doughnut',
-                data: {
-                    labels: <?= json_encode($chartLabels) ?>,
-                    datasets: [{
-                        data: <?= json_encode($chartValues) ?>,
-                        backgroundColor: ['#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#eab308', '#f43f5e', '#10b981'],
-                        borderWidth: 0,
-                    }]
-                },
-                options: { 
-                    responsive: true, 
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: { position: 'bottom' }
-                    }
-                }
+            // Ao trocar Categoria, atualiza lista de quartos daquela categoria e recalcula tudo em 0ms!
+            $('#filtroCategoria').on('change', function() {
+                atualizarOpcoesSelectQuarto('all');
+                aplicarFiltrosInstantaneos();
             });
 
+            // Ao trocar Quarto ou Modalidade, recalcula tudo em 0ms!
+            $('#filtroQuarto, #filtroModalidade').on('change', function() {
+                aplicarFiltrosInstantaneos();
+            });
 
+            popularSelectsQuartosECategorias();
+            aplicarFiltrosInstantaneos();
         });
-        
-        // WhatsApp Export
-        function exportToWhats() {
-            const faturamento = "R$ <?= number_format($faturamentoAtual, 2, ',', '.') ?>";
-            const lucro = "R$ <?= number_format($lucroLiquido, 2, ',', '.') ?>";
-            const margem = "<?= number_format($margemLiquida, 1, ',', '.') ?>%";
-            const ticket = "R$ <?= number_format($ticketMedio, 2, ',', '.') ?>";
-            const giro = "<?= number_format($giroDiario, 2, ',', '.') ?>";
-            const ocupacao = "<?= number_format($taxaOcupacao, 1, ',', '.') ?>%";
-            const periodo = "<?= date('d/m/Y', strtotime($dataInicio)) ?> a <?= date('d/m/Y', strtotime($dataFim)) ?>";
-            const dicaIA = <?= json_encode(preg_replace("/\*|_|~/", "", $insightIAText)) ?>;
-            
-            let texto = `*📊 Relatório Motel Inteligente*\n`;
-            texto += `_Período: ${periodo}_\n\n`;
-            texto += `*Faturamento Bruto:* ${faturamento}\n`;
-            texto += `*Lucro Líquido (est.):* ${lucro} (Margem: ${margem})\n`;
-            texto += `*Ticket Médio:* ${ticket}\n`;
-            texto += `*Giro Diário:* ${giro} loc/dia\n`;
-            texto += `*Ocupação Relativa:* ${ocupacao}\n\n`;
-            
-            if (dicaIA && dicaIA.length > 5) {
-                texto += `*💡 Sócio I.A. diz:* ${dicaIA}\n\n`;
-            }
-            
-            texto += `_Gerado via Painel de Gestão Estratégica_`;
-            
-            const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(texto)}`;
-            window.open(url, '_blank');
-        }
     </script>
 </body>
 </html>

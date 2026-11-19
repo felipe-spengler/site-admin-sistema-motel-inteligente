@@ -1,4 +1,6 @@
 <?php
+date_default_timezone_set('America/Sao_Paulo');
+
 // Verifica se o cookie da filial existe
 if (!isset($_COOKIE["usuario_filial"])) {
     header("Location: index.php");
@@ -25,12 +27,10 @@ switch ($filial) {
         die("Filial inválida.");
 }
 
-// Arquivos de funções de controle (devem existir no seu projeto)
 include 'verificar_acesso.php';
 
 // --- DEFINIÇÃO DO PERÍODO DE FILTRO ---
-
-// Verifica se foi recebido um valor por método POST
+$selectedPeriod = $_POST["period"] ?? 'this_month';
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["period"])) {
     $period = $_POST["period"];
     switch ($period) {
@@ -54,29 +54,25 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["period"])) {
             $dataInicio = date('Y-m-01', strtotime('-1 month')) . ' 00:00:00';
             $dataFim = date('Y-m-t', strtotime('-1 month')) . ' 23:59:59';
             break;
+        case "this_year":
+            $dataInicio = date('Y-01-01') . ' 00:00:00';
+            $dataFim = date('Y-m-d') . ' 23:59:59';
+            break;
         case "custom":
-            // Verifica se foram enviados dados de período personalizado
-            if (isset($_POST["data_inicio"]) && isset($_POST["data_fim"])) {
-                // Para adicionar a hora 00:00:00
+            if (isset($_POST["data_inicio"]) && isset($_POST["data_fim"]) && !empty($_POST["data_inicio"]) && !empty($_POST["data_fim"])) {
                 $dataInicio = formatarData($_POST["data_inicio"], true);
-
-                // Para adicionar a hora 23:59:59
                 $dataFim = formatarData($_POST["data_fim"], false);
-
             } else {
-                // Se não foram recebidos dados, assumir período "Este Mês"
                 $dataInicio = date('Y-m-01') . ' 00:00:00';
                 $dataFim = date('Y-m-d') . ' 23:59:59';
             }
             break;
         default:
-            // Se nenhum dos casos corresponder, assume-se "Este Mês"
             $dataInicio = date('Y-m-01') . ' 00:00:00';
             $dataFim = date('Y-m-d') . ' 23:59:59';
             break;
     }
 } else {
-    // Se não foi recebido nenhum valor, assume-se "Este Mês"
     $dataInicio = date('Y-m-01') . ' 00:00:00';
     $dataFim = date('Y-m-d') . ' 23:59:59';
 }
@@ -85,77 +81,69 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST["period"])) {
 $conexao = conectarAoBanco();
 $paginaAtual = basename($_SERVER['PHP_SELF']);
 
-// Verificar login e registrar acesso
 verificarCookie($conexao, $paginaAtual);
 verificarCargoUsuario(['admin', 'gerente']);
 
-// Inicializa variáveis que serão usadas no HTML
 $numVendido = 0;
-$valorVendido = 0;
+$valorVendido = 0.0;
 $totalLocacoes = 0;
-$dias = 0; // Para calcular a diferença de dias no período
+$faturamentoTotalCaixas = 0.0;
+$dias = 0;
+$caixas = [];
+$produtosVendidos = [];
+$locacoes = [];
+$locacoesPorQuarto = [];
+$locacoesPorTipoQuarto = [];
 
-if ($conexao === null) {
-    echo "<p>Erro na conexão com o banco de dados.</p>";
-} else {
-    $imagemCodificada = null;
-    $caixas = dadosCaixa($conexao, $dataInicio, $dataFim);
+if ($conexao !== null) {
     $idsCaixa = getIdCaixas($conexao, $dataInicio, $dataFim);
+    $caixas = dadosCaixa($conexao, $idsCaixa);
 
-    // Calcula a diferença de dias no período
-    $data1 = new DateTime($dataInicio);
-    $data2 = new DateTime(substr($dataFim, 0, 10)); // Pega apenas a data
+    foreach ($caixas as $c) {
+        $faturamentoTotalCaixas += (float)$c[1];
+    }
+
+    $data1 = new DateTime(substr($dataInicio, 0, 10));
+    $data2 = new DateTime(substr($dataFim, 0, 10));
     $intervalo = $data1->diff($data2);
     $dias = $intervalo->days + 1;
 
     $produtosVendidos = carregaProdutosVendidos($conexao, $idsCaixa);
 
-    // --- CORREÇÃO: CALCULAR TOTAIS DE PRODUTOS VENDIDOS ---
     foreach ($produtosVendidos as $produto) {
-        $numVendido += $produto['quantidade']; // Soma a quantidade
-        $valorVendido += ($produto['quantidade'] * $produto['valorUnd']); // Soma o valor total do produto
+        $numVendido += (int)$produto['quantidade'];
+        $valorVendido += (float)$produto['valorTotal'];
     }
-    // --------------------------------------------------------
 
     $locacoes = carregarLocacoes($conexao, $idsCaixa);
-    $locacoesJson = json_encode($locacoes);
 
-    // Calcula o total de locações para o card
     foreach ($locacoes as $loc) {
-        $totalLocacoes += $loc['total_locacoes'];
+        $totalLocacoes += (int)$loc['total_locacoes'];
     }
 
     list($locacoesPorQuarto, $locacoesPorTipoQuarto) = obterLocacoesPorQuartoETipo($idsCaixa, $conexao);
-}
-
-// Garante que a conexão seja fechada.
-if (isset($conexao) && $conexao !== null) {
     $conexao->close();
 }
 
-// -------------------- FIM DO BLOCO PRINCIPAL --------------------
+$mediaPorCaixa = count($caixas) > 0 ? ($faturamentoTotalCaixas / count($caixas)) : 0.0;
+$mediaLocacoesDia = $dias > 0 ? ($totalLocacoes / $dias) : 0.0;
 
+// -------------------- FUNÇÕES AUXILIARES --------------------
 
-// -------------------- FUNÇÕES AUXILIARES DE PROCESSAMENTO DE DADOS --------------------
-
-function formatarData($data, $horaInicial = true)
-{
-    // Divide a data em dia, mês e ano
+function formatarData($data, $horaInicial = true) {
     $partes = explode('/', $data);
-    $dia = $partes[0];
-    $mes = $partes[1];
-    $ano = $partes[2];
-
-    // Verifica se devemos adicionar a hora 00:00:00 ou 23:59:59
-    $hora = $horaInicial ? '00:00:00' : '23:59:59';
-
-    // Formata a data e hora de acordo com o formato MySQL
-    return sprintf('%04d-%02d-%02d %s', $ano, $mes, $dia, $hora);
+    if (count($partes) === 3) {
+        $dia = $partes[0];
+        $mes = $partes[1];
+        $ano = $partes[2];
+        $hora = $horaInicial ? '00:00:00' : '23:59:59';
+        return sprintf('%04d-%02d-%02d %s', $ano, $mes, $dia, $hora);
+    }
+    return date('Y-m-d') . ($horaInicial ? ' 00:00:00' : ' 23:59:59');
 }
 
-function getIdCaixas($conexao, $dataInicio, $dataFim)
-{
-    $sql = "SELECT id FROM caixa WHERE horaabre >= ? AND horaabre <= ?";
+function getIdCaixas($conexao, $dataInicio, $dataFim) {
+    $sql = "SELECT id FROM caixa WHERE horaabre >= ? AND horaabre <= ? ORDER BY horaabre ASC";
     $idCaixas = array();
     $statement = null;
 
@@ -166,10 +154,9 @@ function getIdCaixas($conexao, $dataInicio, $dataFim)
         $result = $statement->get_result();
 
         while ($row = $result->fetch_assoc()) {
-            $idCaixas[] = $row['id'];
+            $idCaixas[] = (int)$row['id'];
         }
     } catch (Exception $e) {
-        // Tratar erro
     } finally {
         if (isset($statement)) {
             $statement->close();
@@ -178,35 +165,57 @@ function getIdCaixas($conexao, $dataInicio, $dataFim)
     return $idCaixas;
 }
 
-function dadosCaixa($conexao, $dataInicio, $dataFim)
-{
-    $sql = "SELECT DAY(horaabre) as dia, MONTH(horaabre) as mes, saldofecha FROM caixa WHERE horaabre >= ? AND horaabre <= ?";
+function dadosCaixa($conexao, $idsCaixa) {
+    if (empty($idsCaixa)) {
+        return [];
+    }
+    $idsStr = implode(',', array_map('intval', $idsCaixa));
+    $sql = "
+        SELECT 
+            c.id,
+            DATE_FORMAT(c.horaabre, '%d/%m') AS data_fmt,
+            DATE_FORMAT(c.horaabre, '%d/%m/%Y %H:%i') AS hora_abre_fmt,
+            c.usuarioabre,
+            COALESCE(loc.soma_loc, 0) + COALESCE(av.soma_av, 0) AS total_faturado,
+            c.saldofecha
+        FROM caixa c
+        LEFT JOIN (
+            SELECT idcaixaatual, SUM(pagodinheiro + pagopix + pagocartao) AS soma_loc
+            FROM registralocado
+            WHERE idcaixaatual IN ($idsStr)
+            GROUP BY idcaixaatual
+        ) loc ON c.id = loc.idcaixaatual
+        LEFT JOIN (
+            SELECT idcaixa, SUM(valortotal) AS soma_av
+            FROM vendas_avulsas
+            WHERE idcaixa IN ($idsStr) AND tipo != 'adiantamento'
+            GROUP BY idcaixa
+        ) av ON c.id = av.idcaixa
+        WHERE c.id IN ($idsStr)
+        ORDER BY c.horaabre ASC
+    ";
+
     $data = array();
-    $statement = null;
-
-    try {
-        $statement = $conexao->prepare($sql);
-        $statement->bind_param("ss", $dataInicio, $dataFim);
-        $statement->execute();
-        $result = $statement->get_result();
-
-        while ($row = $result->fetch_assoc()) {
-            $dataFormatada = $row['dia'] . '/' . $row['mes'];
-            $data[] = array($dataFormatada, $row['saldofecha']);
-        }
-    } catch (Exception $e) {
-        // Tratar erro
-    } finally {
-        if ($statement) {
-            $statement->close();
+    $res = $conexao->query($sql);
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            $valor = (float)$row['total_faturado'];
+            if ($valor <= 0 && $row['saldofecha'] !== null) {
+                $valor = (float)$row['saldofecha'];
+            }
+            $data[] = array(
+                $row['data_fmt'],
+                round($valor, 2),
+                $row['id'],
+                $row['hora_abre_fmt'],
+                $row['usuarioabre'] ?? ''
+            );
         }
     }
     return $data;
 }
 
-// --- FUNÇÃO REFATORADA PARA REUTILIZAR A CONEXÃO ---
-function carregaProdutosVendidos($conexao, $idsCaixa)
-{
+function carregaProdutosVendidos($conexao, $idsCaixa) {
     $listaProdutos = array();
     if (empty($idsCaixa)) {
         return $listaProdutos;
@@ -214,13 +223,13 @@ function carregaProdutosVendidos($conexao, $idsCaixa)
 
     $placeholders = implode(',', array_fill(0, count($idsCaixa), '?'));
     $consultaSQL = "
-        SELECT idproduto, SUM(quantidade) AS quantidade_total, valorunidade 
+        SELECT idproduto, SUM(quantidade) AS quantidade_total, valorunidade, SUM(valortotal) AS soma_total
         FROM (
-            SELECT idproduto, quantidade, valorunidade 
+            SELECT idproduto, quantidade, valorunidade, valortotal
             FROM registravendido 
             WHERE idcaixaatual IN ($placeholders)
             UNION ALL
-            SELECT idproduto, quantidade, valorunidade 
+            SELECT idproduto, quantidade, valorunidade, valortotal
             FROM vendas_avulsas 
             WHERE idcaixa IN ($placeholders) AND tipo != 'adiantamento'
         ) AS combinado 
@@ -230,34 +239,40 @@ function carregaProdutosVendidos($conexao, $idsCaixa)
     $statement = null;
     try {
         $statement = $conexao->prepare($consultaSQL);
-
-        // Faz o bind dos IDs de caixa como parâmetros da consulta preparada (duas vezes devido ao UNION)
         $tipos = str_repeat("i", count($idsCaixa) * 2);
         $paramsCombined = array_merge($idsCaixa, $idsCaixa);
         $statement->bind_param($tipos, ...$paramsCombined);
-
         $statement->execute();
         $resultado = $statement->get_result();
 
         while ($row = $resultado->fetch_assoc()) {
-            $produto = array(
+            $qtd = (int)$row['quantidade_total'];
+            if ($qtd <= 0) $qtd = 1;
+            $valUnd = (float)$row['valorunidade'];
+            $valTot = isset($row['soma_total']) && (float)$row['soma_total'] > 0
+                ? (float)$row['soma_total']
+                : ($qtd * $valUnd);
+
+            $desc = getDescricao($row['idproduto'], $conexao);
+            if (!$desc) {
+                $desc = "Produto #" . $row['idproduto'];
+            }
+
+            $listaProdutos[] = array(
                 'idProduto' => $row['idproduto'],
-                // Passando a CONEXÃO aberta para a função getDescricao
-                'descricao' => getDescricao($row['idproduto'], $conexao),
-                'quantidade' => $row['quantidade_total'],
-                'valorUnd' => $row['valorunidade'],
+                'descricao' => $desc,
+                'quantidade' => $qtd,
+                'valorUnd' => $valUnd,
+                'valorTotal' => $valTot
             );
-            $listaProdutos[] = $produto;
         }
     } catch (Exception $e) {
-        echo "<p>Ocorreu um erro ao carregar a lista de produtos vendidos: " . $e->getMessage() . "</p>";
     } finally {
         if (isset($statement)) {
             $statement->close();
         }
     }
 
-    // Ordena a lista de produtos pela quantidade total vendida em ordem decrescente
     usort($listaProdutos, function ($a, $b) {
         return $b['quantidade'] - $a['quantidade'];
     });
@@ -265,95 +280,71 @@ function carregaProdutosVendidos($conexao, $idsCaixa)
     return $listaProdutos;
 }
 
-// --- FUNÇÃO REFATORADA PARA REUTILIZAR A CONEXÃO ---
-function getDescricao($idPassado, $conexao)
-{
+function getDescricao($idPassado, $conexao) {
     $consultaSQL = "SELECT descricao FROM produtos WHERE idproduto = ?";
     $resultado = null;
     $statement = null;
 
     try {
         $statement = $conexao->prepare($consultaSQL);
-        if (!$statement) {
-            throw new Exception("Erro ao preparar a consulta SQL: " . $conexao->error);
-        }
-
+        if (!$statement) return null;
         $statement->bind_param("i", $idPassado);
-
-        if (!$statement->execute()) {
-            throw new Exception("Erro ao executar a consulta SQL: " . $statement->error);
-        }
-
+        if (!$statement->execute()) return null;
         $resultado = $statement->get_result();
-
         if ($resultado && $resultado->num_rows > 0) {
             $row = $resultado->fetch_assoc();
             return $row['descricao'];
-        } else {
-            return null;
         }
+        return null;
     } catch (Exception $e) {
         return null;
     } finally {
-        // Fecha APENAS o statement e o resultado (CONEXÃO continua aberta).
-        if ($resultado) {
-            $resultado->close();
-        }
-        if ($statement) {
-            $statement->close();
-        }
+        if ($resultado) $resultado->close();
+        if ($statement) $statement->close();
     }
 }
 
-function carregarLocacoes($conexao, $idsCaixa)
-{
+function carregarLocacoes($conexao, $idsCaixa) {
     if (empty($idsCaixa)) {
         return [];
     }
 
     $placeholders = implode(',', array_fill(0, count($idsCaixa), '?'));
-
     $consultaSQL = "SELECT 
-                        DAY(caixa.horaabre) as dia, 
-                        MONTH(caixa.horaabre) as mes,
-                        caixa.saldofecha,
-                        rl.total_locacoes
-                    FROM 
-                        caixa
-                    JOIN 
-                        (SELECT 
-                            idcaixaatual, 
-                            COUNT(*) as total_locacoes 
-                        FROM 
-                            registralocado 
-                        WHERE 
-                            idcaixaatual IN ($placeholders)
-                        GROUP BY 
-                            idcaixaatual) rl
-                    ON 
-                        caixa.id = rl.idcaixaatual
-                    ORDER BY 
-                        caixa.horaabre";
+                        DATE_FORMAT(caixa.horaabre, '%d/%m') as data_fmt,
+                        DATE_FORMAT(caixa.horaabre, '%d/%m/%Y %H:%i') as data_completa,
+                        caixa.id as id_caixa,
+                        COALESCE(rl.total_locacoes, 0) as total_locacoes
+                    FROM caixa
+                    LEFT JOIN (
+                        SELECT idcaixaatual, COUNT(*) as total_locacoes 
+                        FROM registralocado 
+                        WHERE idcaixaatual IN ($placeholders)
+                        GROUP BY idcaixaatual
+                    ) rl ON caixa.id = rl.idcaixaatual
+                    WHERE caixa.id IN ($placeholders)
+                    ORDER BY caixa.horaabre ASC";
 
     $locacoesPorCaixa = [];
     $statement = null;
 
     try {
         $statement = $conexao->prepare($consultaSQL);
-        $tipos = str_repeat("i", count($idsCaixa));
-        $statement->bind_param($tipos, ...$idsCaixa);
-
+        $tipos = str_repeat("i", count($idsCaixa) * 2);
+        $params = array_merge($idsCaixa, $idsCaixa);
+        $statement->bind_param($tipos, ...$params);
         $statement->execute();
         $resultado = $statement->get_result();
 
         while ($row = $resultado->fetch_assoc()) {
             $locacoesPorCaixa[] = [
-                'data' => $row['dia'] . '/' . $row['mes'],
-                'total_locacoes' => $row['total_locacoes']
+                'data' => $row['data_fmt'],
+                'data_completa' => $row['data_completa'],
+                'id_caixa' => (int)$row['id_caixa'],
+                'total_locacoes' => (int)$row['total_locacoes']
             ];
         }
     } catch (Exception $e) {
-        // Tratar exceção
     } finally {
         if ($statement) {
             $statement->close();
@@ -363,16 +354,13 @@ function carregarLocacoes($conexao, $idsCaixa)
     return $locacoesPorCaixa;
 }
 
-// --- FUNÇÃO REFATORADA PARA REUTILIZAR A CONEXÃO ---
-function obterLocacoesPorQuartoETipo($idsCaixa, $conn)
-{
+function obterLocacoesPorQuartoETipo($idsCaixa, $conn) {
     $locacoesPorQuarto = [];
     $locacoesPorTipoQuarto = [];
     if (empty($idsCaixa)) {
         return [$locacoesPorQuarto, $locacoesPorTipoQuarto];
     }
 
-    // 1. Obter todas as locações e números de quarto em uma única consulta
     $placeholders = implode(',', array_fill(0, count($idsCaixa), '?'));
     $sqlLocacoes = "SELECT numquarto FROM registralocado WHERE idcaixaatual IN ($placeholders)";
     $locacoesGerais = [];
@@ -389,31 +377,26 @@ function obterLocacoesPorQuartoETipo($idsCaixa, $conn)
             $locacoesGerais[] = $row;
         }
     } catch (Exception $e) {
-        // Tratar erro
     } finally {
         if ($statementLocacoes) {
             $statementLocacoes->close();
         }
     }
 
-    // 2. Contar locações por quarto (em PHP)
     $quartosEncontrados = [];
     foreach ($locacoesGerais as $row) {
         $numeroQuarto = $row['numquarto'];
-
         if (isset($locacoesPorQuarto[$numeroQuarto])) {
             $locacoesPorQuarto[$numeroQuarto]['total_locacoes']++;
         } else {
             $locacoesPorQuarto[$numeroQuarto] = [
                 'numeroquarto' => $numeroQuarto,
-                'total_locacoes' => 1
+                'total_locacoes' => 1,
+                'tipoquarto' => 'Suíte'
             ];
             $quartosEncontrados[] = $numeroQuarto;
         }
     }
-
-    // 3. Obter o tipo de quarto em uma ÚNICA consulta para todos os quartos encontrados
-    $locacoesPorQuartoArray = array_values($locacoesPorQuarto);
 
     if (!empty($quartosEncontrados)) {
         $quartosPlaceholders = implode(',', array_fill(0, count($quartosEncontrados), '?'));
@@ -432,21 +415,17 @@ function obterLocacoesPorQuartoETipo($idsCaixa, $conn)
                 $tiposQuartosMap[$row['numeroquarto']] = $row['tipoquarto'];
             }
 
-            // 4. Calcular locações por tipo de quarto (em PHP)
-            foreach ($locacoesPorQuartoArray as $quarto) {
-                $numeroQuarto = $quarto['numeroquarto'];
-                $totalLocacoes = $quarto['total_locacoes'];
-                // Usa o mapa para buscar o tipo de quarto
-                $tipoQuarto = $tiposQuartosMap[$numeroQuarto] ?? 'Desconhecido';
+            foreach ($locacoesPorQuarto as $numQ => &$quartoRef) {
+                $tipoQuarto = $tiposQuartosMap[$numQ] ?? 'Padrão';
+                $quartoRef['tipoquarto'] = $tipoQuarto;
 
                 if (!isset($locacoesPorTipoQuarto[$tipoQuarto])) {
                     $locacoesPorTipoQuarto[$tipoQuarto] = 0;
                 }
-                $locacoesPorTipoQuarto[$tipoQuarto] += $totalLocacoes;
+                $locacoesPorTipoQuarto[$tipoQuarto] += $quartoRef['total_locacoes'];
             }
-
+            unset($quartoRef);
         } catch (Exception $e) {
-            // Tratar erro
         } finally {
             if ($statementTipos) {
                 $statementTipos->close();
@@ -454,74 +433,172 @@ function obterLocacoesPorQuartoETipo($idsCaixa, $conn)
         }
     }
 
-    // Ordenar locacoesPorQuarto pelo número do quarto (final)
+    $locacoesPorQuartoArray = array_values($locacoesPorQuarto);
     usort($locacoesPorQuartoArray, function ($a, $b) {
-        return $a['numeroquarto'] - $b['numeroquarto'];
+        return $b['total_locacoes'] - $a['total_locacoes'];
     });
+    arsort($locacoesPorTipoQuarto);
 
     return [$locacoesPorQuartoArray, $locacoesPorTipoQuarto];
 }
-
-// As funções imprimirTabelaLocacoesPorQuarto e imprimirTabelaLocacoesPorTipoQuarto
-// foram mantidas aqui, mas não são usadas no fluxo principal que gera o HTML.
-
-function imprimirTabelaLocacoesPorQuarto($locacoesPorQuarto)
-{
-    // Função de comparação para ordenar por total_locacoes de forma decrescente
-    usort($locacoesPorQuarto, function ($a, $b) {
-        return $b['total_locacoes'] - $a['total_locacoes'];
-    });
-
-    echo "<h3>Locações por Quarto </h3>";
-    echo "<table border='1'>";
-    echo "<tr><th>Número do Quarto</th><th>Total de Locações</th></tr>";
-
-    foreach ($locacoesPorQuarto as $quarto) {
-        if ($quarto['total_locacoes'] > 0) {
-            echo "<tr>";
-            echo "<td>{$quarto['numeroquarto']}</td>";
-            echo "<td>{$quarto['total_locacoes']}</td>";
-            echo "</tr>";
-        }
-    }
-    echo "</table>";
-}
-
-
-function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto)
-{
-    echo "<h3>Locações por Tipo de Quarto</h3>";
-    echo "<table border='1'>";
-    echo "<tr><th>Tipo de Quarto</th><th>Total de Locações</th></tr>";
-    foreach ($locacoesPorTipoQuarto as $tipoQuarto => $totalLocacoes) {
-        echo "<tr>";
-        echo "<td>$tipoQuarto</td>";
-        echo "<td>$totalLocacoes</td>";
-        echo "</tr>";
-    }
-    echo "</table>";
-}
-
 ?>
-
 <!DOCTYPE html>
 <html lang="pt-BR">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Demonstrativo Gráfico</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
-        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <title>Demonstrativo Gráfico - <?= ucfirst($filial) ?></title>
+    <link rel="icon" href="imagens/iconeMI.png" type="image/png" sizes="32x32">
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
+
+    <!-- Google Fonts - Inter & Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.js"></script>
 
     <style>
-        body {
-            background-color: #f8f9fa;
-            /* Cor de fundo Bootstrap light gray */
-            font-family: Arial, sans-serif;
+        :root {
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --card-border: rgba(0, 0, 0, 0.08);
+            --text-color: #1e293b;
+            --font-primary: 'Inter', sans-serif;
+            --font-title: 'Outfit', sans-serif;
         }
 
-        /* Classes para esconder/mostrar abas (mantidas para compatibilidade com seu JS) */
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: var(--font-primary);
+            margin-bottom: 95px;
+        }
+
+        .main-container {
+            max-width: 1200px;
+            margin-top: 16px;
+            padding-left: 12px;
+            padding-right: 12px;
+        }
+
+        @media (min-width: 768px) {
+            .main-container {
+                margin-top: 28px;
+                padding-left: 15px;
+                padding-right: 15px;
+            }
+        }
+
+        .title-gradient {
+            font-family: var(--font-title);
+            background: linear-gradient(45deg, #1e3a8a, #2563eb);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: 800;
+        }
+
+        .glass-panel {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 14px;
+            padding: 14px;
+            box-shadow: 0 8px 24px -10px rgba(0, 0, 0, 0.08);
+        }
+
+        @media (min-width: 768px) {
+            .glass-panel {
+                border-radius: 16px;
+                padding: 20px;
+            }
+        }
+
+        .metric-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 14px;
+            padding: 14px 16px;
+            box-shadow: 0 8px 24px -10px rgba(0, 0, 0, 0.07);
+            height: 100%;
+        }
+
+        .metric-label {
+            font-size: 0.74rem;
+            letter-spacing: 0.6px;
+            color: #64748b;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+
+        .metric-value {
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin-top: 4px;
+            margin-bottom: 0;
+        }
+
+        @media (min-width: 768px) {
+            .metric-value {
+                font-size: 1.6rem;
+            }
+        }
+
+        /* Abas Mobile-First com Scroll Horizontal Suave */
+        .nav-tabs-premium {
+            border-bottom: 2px solid #e2e8f0;
+            margin-bottom: 16px;
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            gap: 6px;
+        }
+
+        .nav-tabs-premium::-webkit-scrollbar {
+            display: none;
+        }
+
+        .nav-tabs-premium .nav-link {
+            border: none;
+            color: #64748b;
+            font-weight: 600;
+            padding: 10px 16px;
+            font-size: 0.9rem;
+            white-space: nowrap;
+            position: relative;
+            background: transparent;
+            transition: color 0.2s ease;
+        }
+
+        @media (min-width: 768px) {
+            .nav-tabs-premium .nav-link {
+                padding: 12px 22px;
+                font-size: 1rem;
+            }
+        }
+
+        .nav-tabs-premium .nav-link.active {
+            color: #2563eb;
+            background: transparent;
+        }
+
+        .nav-tabs-premium .nav-link.active::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background-color: #2563eb;
+            border-radius: 3px;
+        }
+
         .conteudo-aba {
             display: none;
         }
@@ -530,253 +607,446 @@ function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto)
             display: block;
         }
 
-        /* Estilo da aba ativa usa as classes 'active' e 'nav-link' do Bootstrap no JS */
+        /* Container Inteligente de Gráfico (Evita esmagamento no mobile!) */
+        .chart-scroll-outer {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            padding-bottom: 6px;
+        }
 
-        .card-title {
-            font-size: 0.9rem;
-            /* Título dos cards de total menor e mais discreto */
+        .chart-canvas-box {
+            position: relative;
+            height: 290px;
+            width: 100%;
+        }
+
+        @media (min-width: 768px) {
+            .chart-canvas-box {
+                height: 360px;
+            }
+        }
+
+        .mobile-swipe-hint {
+            font-size: 0.76rem;
+            color: #64748b;
+            background: #f1f5f9;
+            border-radius: 20px;
+            padding: 3px 10px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .custom-table {
+            background: var(--card-bg);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--card-border);
+        }
+
+        .custom-table th {
+            background: #f1f5f9;
+            color: #475569;
             font-weight: 600;
+            font-size: 0.84rem;
+            padding: 10px 12px;
+            border-bottom: 2px solid rgba(0, 0, 0, 0.06);
+        }
+
+        .custom-table td {
+            padding: 10px 12px;
+            vertical-align: middle;
+            font-size: 0.88rem;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+        }
+
+        .progress-slim {
+            height: 6px;
+            border-radius: 4px;
+            background-color: #e2e8f0;
+        }
+
+        .form-control, .form-select {
+            font-size: 16px;
+        }
+
+        @media (min-width: 768px) {
+            .form-control, .form-select {
+                font-size: 0.95rem;
+            }
         }
     </style>
-
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="icon" href="imagens/iconeMI.png" type="image/png" sizes="32x32">
-    <link rel="stylesheet" href="https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
 </head>
-
 <body>
-    <div class="container my-4 p-4 bg-white border rounded shadow-lg">
-        <h3 class="text-center mb-4 text-primary">Demonstrativo Gráfico</h3>
+    <div class="container main-container">
+        
+        <!-- Header -->
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-3 mb-md-4">
+            <div>
+                <h2 class="title-gradient mb-0 fs-3 fs-md-2">Demonstrativo Gráfico</h2>
+                <p class="text-muted mb-0 small">Análise visual de caixas, produtos e ocupação de <?= ucfirst($filial) ?></p>
+            </div>
+        </div>
 
-        <div class="options">
-            <form method="post" action="demonstrativo_grafico.php"
-                class="row g-3 align-items-center justify-content-center">
-                <div class="col-auto">
-                    <label for="period" class="col-form-label fw-bold">Selecione o período:</label>
-                </div>
-                <div class="col-md-4 col-lg-3">
+        <!-- Painel de Filtro -->
+        <div class="glass-panel mb-3 mb-md-4">
+            <form method="post" action="demonstrativo_grafico.php" class="row g-2 g-md-3 align-items-end">
+                <div class="col-12 col-md-4">
+                    <label for="period" class="form-label fw-bold text-muted small mb-1">Período de Análise</label>
                     <select name="period" id="period" class="form-select">
-                        <option value="7" <?php echo (isset($_POST['period']) && $_POST['period'] == '7') ? 'selected' : ''; ?>>Últimos 7 dias</option>
-                        <option value="15" <?php echo (isset($_POST['period']) && $_POST['period'] == '15') ? 'selected' : ''; ?>>Últimos 15 dias</option>
-                        <option value="30" <?php echo (isset($_POST['period']) && $_POST['period'] == '30') ? 'selected' : ''; ?>>Últimos 30 dias</option>
-                        <option value="this_month" <?php echo (!isset($_POST['period']) || $_POST['period'] == 'this_month') ? 'selected' : ''; ?>>Este Mês</option>
-                        <option value="last_month" <?php echo (isset($_POST['period']) && $_POST['period'] == 'last_month') ? 'selected' : ''; ?>>Mês Passado</option>
-                        <option value="custom" <?php echo (isset($_POST['period']) && $_POST['period'] == 'custom') ? 'selected' : ''; ?>>Definir um Período</option>
+                        <option value="7" <?= ($selectedPeriod == '7') ? 'selected' : ''; ?>>Últimos 7 dias</option>
+                        <option value="15" <?= ($selectedPeriod == '15') ? 'selected' : ''; ?>>Últimos 15 dias</option>
+                        <option value="30" <?= ($selectedPeriod == '30') ? 'selected' : ''; ?>>Últimos 30 dias</option>
+                        <option value="this_month" <?= ($selectedPeriod == 'this_month') ? 'selected' : ''; ?>>Este Mês</option>
+                        <option value="last_month" <?= ($selectedPeriod == 'last_month') ? 'selected' : ''; ?>>Mês Passado</option>
+                        <option value="this_year" <?= ($selectedPeriod == 'this_year') ? 'selected' : ''; ?>>Anual (Este Ano)</option>
+                        <option value="custom" <?= ($selectedPeriod == 'custom') ? 'selected' : ''; ?>>Período Personalizado</option>
                     </select>
                 </div>
 
-                <div id="custom_period" class="col-12 row g-3 justify-content-center mt-2"
-                    style="display: <?php echo (isset($_POST['period']) && $_POST['period'] == 'custom') ? 'flex' : 'none'; ?>;">
-                    <div class="col-md-3">
-                        <label for="data_inicio" class="form-label">Data de Início:</label>
+                <div id="custom_period" class="col-12 col-md-6 row g-2 m-0" style="display: <?= ($selectedPeriod == 'custom') ? 'flex' : 'none'; ?>;">
+                    <div class="col-6 ps-0">
+                        <label for="data_inicio" class="form-label fw-bold text-muted small mb-1">Início</label>
                         <input type="text" id="data_inicio" name="data_inicio" class="form-control"
-                            value="<?php echo isset($_POST['data_inicio']) ? htmlspecialchars($_POST['data_inicio']) : ''; ?>">
+                            value="<?= isset($_POST['data_inicio']) ? htmlspecialchars($_POST['data_inicio']) : ''; ?>"
+                            placeholder="dd/mm/aaaa" autocomplete="off">
                     </div>
-                    <div class="col-md-3">
-                        <label for="data_fim" class="form-label">Data de Fim:</label>
+                    <div class="col-6 pe-0">
+                        <label for="data_fim" class="form-label fw-bold text-muted small mb-1">Fim</label>
                         <input type="text" id="data_fim" name="data_fim" class="form-control"
-                            value="<?php echo isset($_POST['data_fim']) ? htmlspecialchars($_POST['data_fim']) : ''; ?>">
+                            value="<?= isset($_POST['data_fim']) ? htmlspecialchars($_POST['data_fim']) : ''; ?>"
+                            placeholder="dd/mm/aaaa" autocomplete="off">
                     </div>
                 </div>
 
-                <div class="col-auto mt-3">
-                    <button type="submit" class="btn btn-primary">Enviar</button>
+                <div class="col-12 col-md-2 d-grid">
+                    <button type="submit" class="btn btn-primary fw-semibold py-2">
+                        <i class="bi bi-funnel-fill me-1"></i> Aplicar
+                    </button>
                 </div>
             </form>
         </div>
 
-        <hr class="my-4">
-        <div class="conteudo">
-            <div class="abas d-flex justify-content-center nav nav-pills mb-3">
-                <button class="nav-link" id="aba-caixas">Caixas</button>
-                <button class="nav-link" id="aba-produtos">Produtos Vendidos</button>
-                <button class="nav-link" id="aba-locacoes">Locações</button>
+        <!-- Abas de Navegação -->
+        <ul class="nav nav-tabs nav-tabs-premium abas" role="tablist">
+            <li class="nav-item">
+                <button type="button" class="nav-link active" id="aba-caixas">
+                    <i class="bi bi-cash-coin me-1"></i> Faturamento por Caixa
+                    <span class="badge rounded-pill bg-primary-subtle text-primary ms-1"><?= count($caixas) ?></span>
+                </button>
+            </li>
+            <li class="nav-item">
+                <button type="button" class="nav-link" id="aba-produtos">
+                    <i class="bi bi-box-seam me-1"></i> Produtos Vendidos
+                    <span class="badge rounded-pill bg-success-subtle text-success ms-1"><?= $numVendido ?></span>
+                </button>
+            </li>
+            <li class="nav-item">
+                <button type="button" class="nav-link" id="aba-locacoes">
+                    <i class="bi bi-door-open me-1"></i> Locações & Suítes
+                    <span class="badge rounded-pill bg-warning-subtle text-dark ms-1"><?= $totalLocacoes ?></span>
+                </button>
+            </li>
+        </ul>
+
+        <!-- ==================== ABA 1: CAIXAS ==================== -->
+        <div id="conteudo-caixas" class="conteudo-aba ativo">
+            <div class="row g-2 g-md-3 mb-3">
+                <div class="col-12 col-md-4">
+                    <div class="metric-card d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="metric-label">Faturamento Total</div>
+                            <div class="metric-value text-primary">R$ <?= number_format($faturamentoTotalCaixas, 2, ',', '.') ?></div>
+                        </div>
+                        <i class="bi bi-wallet2 text-primary fs-2 opacity-75"></i>
+                    </div>
+                </div>
+                <div class="col-6 col-md-4">
+                    <div class="metric-card d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="metric-label">Caixas no Período</div>
+                            <div class="metric-value text-dark"><?= count($caixas) ?></div>
+                        </div>
+                        <i class="bi bi-archive text-secondary fs-3 opacity-50 d-none d-sm-inline"></i>
+                    </div>
+                </div>
+                <div class="col-6 col-md-4">
+                    <div class="metric-card d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="metric-label">Média por Caixa</div>
+                            <div class="metric-value text-success">R$ <?= number_format($mediaPorCaixa, 2, ',', '.') ?></div>
+                        </div>
+                        <i class="bi bi-graph-up-arrow text-success fs-3 opacity-75 d-none d-sm-inline"></i>
+                    </div>
+                </div>
             </div>
 
-            <div class="conteudo-abas card card-body p-3 border-0">
+            <div class="glass-panel mb-3">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                    <h6 class="fw-bold mb-0 text-dark">
+                        <i class="bi bi-activity text-primary me-1"></i> Evolução de Faturamento por Caixa
+                    </h6>
+                    <div class="d-flex align-items-center gap-2">
+                        <?php if (count($caixas) > 8): ?>
+                            <span class="mobile-swipe-hint d-md-none">
+                                <i class="bi bi-arrows-expand-vertical"></i> Deslize o gráfico para o lado
+                            </span>
+                        <?php endif; ?>
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button type="button" class="btn btn-outline-primary active" id="btnCaixaLinha" onclick="mudarTipoGraficoCaixa('line')">Linha</button>
+                            <button type="button" class="btn btn-outline-primary" id="btnCaixaBarra" onclick="mudarTipoGraficoCaixa('bar')">Barras</button>
+                        </div>
+                    </div>
+                </div>
 
-                <div id="conteudo-caixas" class="conteudo-aba ativo">
-                    <canvas id="grafico-caixas" style="height: 300px;"></canvas>
-                    <h5 class="mt-4 mb-3 text-center text-secondary">Dados de Fechamento de Caixa</h5>
+                <div class="chart-scroll-outer">
+                    <div class="chart-canvas-box" id="wrapper-grafico-caixas">
+                        <canvas id="grafico-caixas"></canvas>
+                    </div>
+                </div>
+            </div>
 
-                    <div class="table-responsive mt-3">
-                        <table id="tabela-caixas" class="table table-striped table-hover table-sm text-center">
-                            <thead class="table-primary">
+            <div class="custom-table shadow-sm">
+                <div class="table-responsive">
+                    <table id="tabela-caixas" class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Caixa / Abertura</th>
+                                <th>Operador</th>
+                                <th class="text-end">Valor Faturado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($caixas)): ?>
                                 <tr>
-                                    <th scope="col">Data</th>
-                                    <th scope="col">Valor Fechamento</th>
+                                    <td colspan="3" class="text-center py-4 text-muted">Nenhum caixa encontrado neste período.</td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($caixas as $caixa): ?>
+                            <?php else: ?>
+                                <?php foreach (array_reverse($caixas) as $caixa): ?>
                                     <tr>
-                                        <td><?php echo $caixa[0]; ?></td>
-                                        <td><?php echo 'R$ ' . number_format((float) $caixa[1], 2, ',', '.'); ?></td>
+                                        <td class="text-nowrap">
+                                            <span class="badge bg-primary-subtle text-primary me-1">#<?= $caixa[2] ?></span>
+                                            <span class="fw-medium"><?= $caixa[3] ?></span>
+                                        </td>
+                                        <td class="text-muted"><?= htmlspecialchars($caixa[4] ?: 'N/A') ?></td>
+                                        <td class="text-end fw-bold text-success text-nowrap">
+                                            R$ <?= number_format((float)$caixa[1], 2, ',', '.') ?>
+                                        </td>
                                     </tr>
                                 <?php endforeach; ?>
-                            </tbody>
-                        </table>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== ABA 2: PRODUTOS VENDIDOS ==================== -->
+        <div id="conteudo-produtos" class="conteudo-aba">
+            <div class="row g-2 g-md-3 mb-3">
+                <div class="col-6">
+                    <div class="metric-card d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="metric-label">Itens Vendidos</div>
+                            <div class="metric-value text-primary"><?= number_format($numVendido, 0, ',', '.') ?> un.</div>
+                        </div>
+                        <i class="bi bi-bag-check-fill text-primary fs-2 opacity-75 d-none d-sm-inline"></i>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="metric-card d-flex justify-content-between align-items-center">
+                        <div>
+                            <div class="metric-label">Receita de Produtos</div>
+                            <div class="metric-value text-success">R$ <?= number_format($valorVendido, 2, ',', '.') ?></div>
+                        </div>
+                        <i class="bi bi-cash-stack text-success fs-2 opacity-75 d-none d-sm-inline"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="glass-panel mb-3">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                    <h6 class="fw-bold mb-0 text-dark">
+                        <i class="bi bi-trophy-fill text-warning me-1"></i> Top 10 Produtos Mais Vendidos
+                    </h6>
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button type="button" class="btn btn-outline-primary active" id="btnProdBarra" onclick="mudarTipoGraficoProdutos('bar')">Ranking (Barras)</button>
+                        <button type="button" class="btn btn-outline-primary" id="btnProdRosca" onclick="mudarTipoGraficoProdutos('doughnut')">Rosca</button>
                     </div>
                 </div>
 
-                <div id="conteudo-produtos" class="conteudo-aba">
-                    <div class="mb-4" style="height: 400px;">
-                        <canvas id="grafico-produtos"></canvas>
-                    </div>
+                <div class="chart-canvas-box" style="height: 340px;">
+                    <canvas id="grafico-produtos"></canvas>
+                </div>
+            </div>
 
-                    <div class="row text-center mt-4 mb-4">
-                        <div class="col-md-6 mb-3">
-                            <div class="card border-primary h-100 shadow-sm">
-                                <div class="card-body">
-                                    <h5 class="card-title text-primary">Total de Produtos Vendidos</h5>
-                                    <p class="card-text fs-3 fw-bold"><?php echo $numVendido; ?></p>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <div class="card border-success h-100 shadow-sm">
-                                <div class="card-body">
-                                    <h5 class="card-title text-success">Valor Total de Vendas</h5>
-                                    <p class="card-text fs-3 fw-bold">
-                                        <?php echo "R$ " . number_format($valorVendido, 2, ',', '.'); ?></p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <h5 class="mb-3 text-center text-secondary">Detalhes dos Produtos Vendidos</h5>
-                    <div id="Vendidos" class="table-responsive">
-                        <table class="table table-striped table-hover table-sm text-center">
-                            <thead class="table-success">
+            <div class="custom-table shadow-sm">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Produto</th>
+                                <th class="text-center">Qtd.</th>
+                                <th class="text-end d-none d-sm-table-cell">Vlr. Unit.</th>
+                                <th class="text-end">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($produtosVendidos)): ?>
                                 <tr>
-                                    <th scope="col">Produto</th>
-                                    <th scope="col">Qntd Vendida</th>
-                                    <th scope="col">Valor Und</th>
-                                    <th scope="col">Total</th>
+                                    <td colspan="4" class="text-center py-4 text-muted">Nenhum produto vendido no período selecionado.</td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                <?php
-                                foreach ($produtosVendidos as $produto) {
-                                    echo "<tr>";
-                                    echo "<td>{$produto['descricao']}</td>";
-                                    echo "<td>{$produto['quantidade']}</td>";
-                                    echo "<td>" . "R$ " . number_format((float) $produto['valorUnd'], 2, ',', '.') . "</td>";
-                                    echo "<td>R$ " . number_format((float) $produto['valorUnd'] * (float) $produto['quantidade'], 2, ',', '.') . "</td>";
-                                    echo "</tr>";
-                                }
-                                ?>
-                            </tbody>
-                        </table>
+                            <?php else: ?>
+                                <?php foreach ($produtosVendidos as $idx => $produto): ?>
+                                    <?php 
+                                        $percQtd = $numVendido > 0 ? (($produto['quantidade'] / $numVendido) * 100) : 0;
+                                    ?>
+                                    <tr>
+                                        <td>
+                                            <div class="fw-semibold text-dark">
+                                                <span class="text-muted small me-1"><?= $idx + 1 ?>º</span>
+                                                <?= htmlspecialchars($produto['descricao']) ?>
+                                            </div>
+                                            <div class="progress progress-slim mt-1" style="max-width: 180px;">
+                                                <div class="progress-bar bg-success" style="width: <?= min(100, round($percQtd, 1)) ?>%"></div>
+                                            </div>
+                                        </td>
+                                        <td class="text-center fw-bold text-nowrap">
+                                            <?= $produto['quantidade'] ?>
+                                            <span class="d-block text-muted" style="font-size: 0.72rem;"><?= number_format($percQtd, 1, ',', '.') ?>%</span>
+                                        </td>
+                                        <td class="text-end text-muted d-none d-sm-table-cell text-nowrap">
+                                            R$ <?= number_format((float)$produto['valorUnd'], 2, ',', '.') ?>
+                                        </td>
+                                        <td class="text-end fw-bold text-success text-nowrap">
+                                            R$ <?= number_format((float)$produto['valorTotal'], 2, ',', '.') ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== ABA 3: LOCAÇÕES & SUÍTES ==================== -->
+        <div id="conteudo-locacoes" class="conteudo-aba">
+            <div class="row g-2 g-md-3 mb-3">
+                <div class="col-4">
+                    <div class="metric-card">
+                        <div class="metric-label">Dias</div>
+                        <div class="metric-value text-info"><?= $dias ?></div>
                     </div>
                 </div>
+                <div class="col-4">
+                    <div class="metric-card">
+                        <div class="metric-label">Locações</div>
+                        <div class="metric-value text-primary"><?= $totalLocacoes ?></div>
+                    </div>
+                </div>
+                <div class="col-4">
+                    <div class="metric-card">
+                        <div class="metric-label">Média / Dia</div>
+                        <div class="metric-value text-success"><?= number_format($mediaLocacoesDia, 1, ',', '.') ?></div>
+                    </div>
+                </div>
+            </div>
 
-                <div id="conteudo-locacoes" class="conteudo-aba">
-                    <div class="mb-4" style="height: 400px;">
+            <div class="glass-panel mb-3">
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                    <h6 class="fw-bold mb-0 text-dark">
+                        <i class="bi bi-bar-chart-fill text-info me-1"></i> Quantidade de Locações por Caixa
+                    </h6>
+                    <?php if (count($locacoes) > 8): ?>
+                        <span class="mobile-swipe-hint d-md-none">
+                            <i class="bi bi-arrows-expand-vertical"></i> Deslize o gráfico para o lado
+                        </span>
+                    <?php endif; ?>
+                </div>
+
+                <div class="chart-scroll-outer">
+                    <div class="chart-canvas-box" id="wrapper-grafico-locacoes">
                         <canvas id="grafico-locacoes"></canvas>
                     </div>
+                </div>
+            </div>
 
-                    <div class="row text-center mt-4 mb-4">
-                        <div class="col-md-6 mb-3">
-                            <div class="card border-info h-100 shadow-sm">
-                                <div class="card-body">
-                                    <h5 class="card-title text-info">Total de Dias no Período</h5>
-                                    <p class="card-text fs-3 fw-bold"><?php echo $dias; ?></p>
-                                </div>
-                            </div>
+            <!-- Tabelas de Ranking por Suíte e por Categoria -->
+            <div class="row g-3">
+                <div class="col-12 col-md-6">
+                    <div class="custom-table shadow-sm h-100">
+                        <div class="p-3 bg-white border-bottom fw-bold text-dark">
+                            <i class="bi bi-door-closed-fill text-warning me-1"></i> Ranking de Ocupação por Quarto
                         </div>
-                        <div class="col-md-6 mb-3">
-                            <div class="card border-warning h-100 shadow-sm">
-                                <div class="card-body">
-                                    <h5 class="card-title text-warning">Número Total de Locações</h5>
-                                    <p class="card-text fs-3 fw-bold"><?php echo $totalLocacoes; ?></p>
-                                </div>
-                            </div>
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Quarto</th>
+                                        <th>Categoria</th>
+                                        <th class="text-end">Locações</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php if (empty($locacoesPorQuarto)): ?>
+                                        <tr><td colspan="3" class="text-center py-3 text-muted">Sem registros no período.</td></tr>
+                                    <?php else: ?>
+                                        <?php foreach ($locacoesPorQuarto as $quarto): ?>
+                                            <?php if ($quarto['total_locacoes'] > 0): ?>
+                                                <?php $percQ = $totalLocacoes > 0 ? (($quarto['total_locacoes'] / $totalLocacoes) * 100) : 0; ?>
+                                                <tr>
+                                                    <td class="fw-bold">Quarto <?= $quarto['numeroquarto'] ?></td>
+                                                    <td><span class="badge bg-light text-dark border"><?= htmlspecialchars($quarto['tipoquarto']) ?></span></td>
+                                                    <td class="text-end">
+                                                        <span class="fw-bold text-primary"><?= $quarto['total_locacoes'] ?></span>
+                                                        <span class="text-muted small ms-1">(<?= number_format($percQ, 1, ',', '.') ?>%)</span>
+                                                    </td>
+                                                </tr>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
+                </div>
 
-                    <h5 class="mb-3 text-center text-secondary">Locações por Data</h5>
-                    <div class="table-responsive">
-                        <table class="table table-striped table-hover table-sm text-center">
-                            <thead class="table-info">
-                                <tr>
-                                    <th scope="col">Data</th>
-                                    <th scope="col">Nº Locações</th>
-                                    <th scope="col">Data</th>
-                                    <th scope="col">Nº Locações</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php
-                                for ($i = 0; $i < count($locacoes); $i++) {
-                                    if ($i % 2 == 0) {
-                                        echo "<tr>";
-                                        echo "<td>{$locacoes[$i]['data']}</td>";
-                                        echo "<td>{$locacoes[$i]['total_locacoes']}</td>";
-                                    } else {
-                                        echo "<td>{$locacoes[$i]['data']}</td>";
-                                        echo "<td>{$locacoes[$i]['total_locacoes']}</td>";
-                                        echo "</tr>";
-                                    }
-                                }
-                                if (count($locacoes) % 2 != 0) {
-                                    echo "<td></td><td></td></tr>";
-                                }
-                                ?>
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <hr class="my-4">
-
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <h5 class="text-center text-secondary">Locações por Quarto</h5>
-                            <div class="table-responsive">
-                                <table class="table table-bordered table-sm text-center table-hover shadow-sm">
-                                    <thead class="table-warning">
-                                        <tr>
-                                            <th scope="col">Número do Quarto</th>
-                                            <th scope="col">Total de Locações</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php
-                                        usort($locacoesPorQuarto, function ($a, $b) {
-                                            return $b['total_locacoes'] - $a['total_locacoes'];
-                                        });
-                                        foreach ($locacoesPorQuarto as $quarto) {
-                                            if ($quarto['total_locacoes'] > 0) {
-                                                echo "<tr><td>{$quarto['numeroquarto']}</td><td>{$quarto['total_locacoes']}</td></tr>";
-                                            }
-                                        }
-                                        ?>
-                                    </tbody>
-                                </table>
-                            </div>
+                <div class="col-12 col-md-6">
+                    <div class="custom-table shadow-sm h-100">
+                        <div class="p-3 bg-white border-bottom fw-bold text-dark">
+                            <i class="bi bi-layers-fill text-danger me-1"></i> Ocupação por Categoria de Suíte
                         </div>
-
-                        <div class="col-md-6 mb-3">
-                            <h5 class="text-center text-secondary">Locações por Tipo de Quarto</h5>
-                            <div class="table-responsive">
-                                <table class="table table-bordered table-sm text-center table-hover shadow-sm">
-                                    <thead class="table-danger">
-                                        <tr>
-                                            <th scope="col">Tipo de Quarto</th>
-                                            <th scope="col">Total de Locações</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php
-                                        foreach ($locacoesPorTipoQuarto as $tipoQuarto => $totalLocacoes) {
-                                            echo "<tr><td>$tipoQuarto</td><td>$totalLocacoes</td></tr>";
-                                        }
-                                        ?>
-                                    </tbody>
-                                </table>
-                            </div>
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Tipo de Quarto</th>
+                                        <th class="text-end">Total de Locações</th>
+                                        <th class="text-end">Participação</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php if (empty($locacoesPorTipoQuarto)): ?>
+                                        <tr><td colspan="3" class="text-center py-3 text-muted">Sem registros no período.</td></tr>
+                                    <?php else: ?>
+                                        <?php foreach ($locacoesPorTipoQuarto as $tipoQuarto => $qtdTipo): ?>
+                                            <?php $percT = $totalLocacoes > 0 ? (($qtdTipo / $totalLocacoes) * 100) : 0; ?>
+                                            <tr>
+                                                <td>
+                                                    <div class="fw-semibold"><?= htmlspecialchars($tipoQuarto) ?></div>
+                                                    <div class="progress progress-slim mt-1" style="max-width: 140px;">
+                                                        <div class="progress-bar bg-primary" style="width: <?= min(100, round($percT, 1)) ?>%"></div>
+                                                    </div>
+                                                </td>
+                                                <td class="text-end fw-bold"><?= $qtdTipo ?></td>
+                                                <td class="text-end text-muted"><?= number_format($percT, 1, ',', '.') ?>%</td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -784,188 +1054,312 @@ function imprimirTabelaLocacoesPorTipoQuarto($locacoesPorTipoQuarto)
         </div>
 
     </div>
+
     <script>
+        const caixasData = <?= json_encode($caixas) ?>;
+        const locacoesData = <?= json_encode($locacoes) ?>;
+        const produtosData = <?= json_encode($produtosVendidos) ?>;
+
+        let chartCaixas = null;
+        let chartProdutos = null;
+        let chartLocacoes = null;
+
+        function formatarBRL(valor) {
+            return 'R$ ' + Number(valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        // Ajusta largura mínima no mobile quando há muitos pontos para não esmagar o gráfico!
+        function ajustarLarguraResponsiva(wrapperId, totalPontos) {
+            const wrapper = document.getElementById(wrapperId);
+            if (!wrapper) return;
+            const isMobile = window.innerWidth < 768;
+            if (isMobile && totalPontos > 8) {
+                const larguraCalculada = Math.max(window.innerWidth - 50, totalPontos * 44);
+                wrapper.style.minWidth = larguraCalculada + 'px';
+            } else {
+                wrapper.style.minWidth = '100%';
+            }
+        }
+
+        function renderizarGraficoCaixas(tipo = 'line') {
+            ajustarLarguraResponsiva('wrapper-grafico-caixas', caixasData.length);
+            const canvas = document.getElementById('grafico-caixas');
+            const ctx = canvas.getContext('2d');
+
+            if (chartCaixas) {
+                chartCaixas.destroy();
+            }
+
+            const labels = caixasData.map(item => item[0]);
+            const valores = caixasData.map(item => Number(item[1] || 0));
+
+            const gradient = ctx.createLinearGradient(0, 0, 0, 320);
+            gradient.addColorStop(0, 'rgba(37, 99, 235, 0.32)');
+            gradient.addColorStop(1, 'rgba(37, 99, 235, 0.02)');
+
+            chartCaixas = new Chart(ctx, {
+                type: tipo,
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Faturamento do Caixa',
+                        data: valores,
+                        borderColor: '#2563eb',
+                        backgroundColor: tipo === 'line' ? gradient : 'rgba(37, 99, 235, 0.82)',
+                        borderWidth: 2.5,
+                        borderRadius: tipo === 'bar' ? 6 : 0,
+                        pointBackgroundColor: '#ffffff',
+                        pointBorderColor: '#2563eb',
+                        pointBorderWidth: 2,
+                        pointRadius: caixasData.length > 25 ? 3 : 4,
+                        pointHoverRadius: 6,
+                        tension: 0.32,
+                        fill: tipo === 'line'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#1e293b',
+                            padding: 10,
+                            callbacks: {
+                                title: function(items) {
+                                    const idx = items[0].dataIndex;
+                                    const item = caixasData[idx];
+                                    return item ? ('Caixa #' + item[2] + ' - ' + item[3]) : items[0].label;
+                                },
+                                label: function(context) {
+                                    return ' Faturamento: ' + formatarBRL(context.parsed.y);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 0,
+                                font: { size: 11 }
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(0,0,0,0.05)' },
+                            ticks: {
+                                font: { size: 11 },
+                                callback: function(value) {
+                                    if (value >= 1000) {
+                                        return 'R$ ' + (value / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + 'k';
+                                    }
+                                    return 'R$ ' + value;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function mudarTipoGraficoCaixa(tipo) {
+            document.getElementById('btnCaixaLinha').classList.toggle('active', tipo === 'line');
+            document.getElementById('btnCaixaBarra').classList.toggle('active', tipo === 'bar');
+            renderizarGraficoCaixas(tipo);
+        }
+
+        function renderizarGraficoProdutos(tipo = 'bar') {
+            const canvas = document.getElementById('grafico-produtos');
+            const ctx = canvas.getContext('2d');
+
+            if (chartProdutos) {
+                chartProdutos.destroy();
+            }
+
+            // Pega os Top 10 produtos para o gráfico ficar limpo e legível no celular e no PC
+            const topProdutos = produtosData.slice(0, 10);
+            const labels = topProdutos.map(p => p.descricao.length > 22 ? p.descricao.substring(0, 20) + '…' : p.descricao);
+            const quantidades = topProdutos.map(p => Number(p.quantidade || 0));
+
+            const palette = [
+                '#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+                '#06b6d4', '#ec4899', '#14b8a6', '#f97316', '#6366f1'
+            ];
+
+            const isHorizontalBar = (tipo === 'bar');
+
+            chartProdutos = new Chart(ctx, {
+                type: isHorizontalBar ? 'bar' : 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Unidades Vendidas',
+                        data: quantidades,
+                        backgroundColor: palette,
+                        borderRadius: isHorizontalBar ? 6 : 0,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    indexAxis: isHorizontalBar ? 'y' : 'x',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: !isHorizontalBar,
+                            position: 'bottom',
+                            labels: { boxWidth: 12, font: { size: 11 } }
+                        },
+                        tooltip: {
+                            backgroundColor: '#1e293b',
+                            padding: 10,
+                            callbacks: {
+                                title: function(items) {
+                                    const idx = items[0].dataIndex;
+                                    return topProdutos[idx] ? topProdutos[idx].descricao : items[0].label;
+                                },
+                                label: function(context) {
+                                    const idx = context.dataIndex;
+                                    const p = topProdutos[idx];
+                                    const qtd = p ? p.quantidade : context.formattedValue;
+                                    const totalRS = p ? formatarBRL(p.valorTotal) : '';
+                                    return ` Vendidos: ${qtd} un. (${totalRS})`;
+                                }
+                            }
+                        }
+                    },
+                    scales: isHorizontalBar ? {
+                        x: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(0,0,0,0.05)' },
+                            ticks: { precision: 0 }
+                        },
+                        y: {
+                            grid: { display: false },
+                            ticks: { font: { size: 11, weight: '600' } }
+                        }
+                    } : {}
+                }
+            });
+        }
+
+        function mudarTipoGraficoProdutos(tipo) {
+            document.getElementById('btnProdBarra').classList.toggle('active', tipo === 'bar');
+            document.getElementById('btnProdRosca').classList.toggle('active', tipo === 'doughnut');
+            renderizarGraficoProdutos(tipo);
+        }
+
+        function renderizarGraficoLocacoes() {
+            ajustarLarguraResponsiva('wrapper-grafico-locacoes', locacoesData.length);
+            const canvas = document.getElementById('grafico-locacoes');
+            const ctx = canvas.getContext('2d');
+
+            if (chartLocacoes) {
+                chartLocacoes.destroy();
+            }
+
+            const labels = locacoesData.map(l => l.data);
+            const valores = locacoesData.map(l => Number(l.total_locacoes || 0));
+
+            chartLocacoes = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Locações no Caixa',
+                        data: valores,
+                        backgroundColor: 'rgba(14, 165, 233, 0.85)',
+                        borderColor: '#0284c7',
+                        borderWidth: 1,
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#1e293b',
+                            padding: 10,
+                            callbacks: {
+                                title: function(items) {
+                                    const idx = items[0].dataIndex;
+                                    const item = locacoesData[idx];
+                                    return item ? ('Caixa #' + item.id_caixa + ' (' + item.data_completa + ')') : items[0].label;
+                                },
+                                label: function(context) {
+                                    return ' Hospedagens: ' + context.parsed.y;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { font: { size: 11 } }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(0,0,0,0.05)' },
+                            ticks: { precision: 0, font: { size: 11 } }
+                        }
+                    }
+                }
+            });
+        }
+
         $(function () {
-            // Lógica para mostrar/esconder o período customizado
             $("#period").change(function () {
                 if ($(this).val() == 'custom') {
-                    $("#custom_period").show();
+                    $("#custom_period").css('display', 'flex');
                 } else {
                     $("#custom_period").hide();
                 }
             });
 
-            // Inicializa o estado se a opção "custom" estiver selecionada no carregamento da página
-            if ($("#period").val() == 'custom') {
-                $("#custom_period").show();
-            }
-
-            // Datepicker
             $("#data_inicio, #data_fim").datepicker({
-                dateFormat: 'dd/mm/yy' // Formato de exibição da data
+                dateFormat: 'dd/mm/yy',
+                dayNames: ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'],
+                dayNamesMin: ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'],
+                monthNames: ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'],
+                monthNamesShort: ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'],
+                nextText: 'Próximo',
+                prevText: 'Anterior'
             });
 
-            // Lógica das Abas: Adiciona a classe 'active' do Bootstrap e sua classe 'ativo'
             $(".abas button").click(function () {
-                // Remove a classe 'active' do Bootstrap e 'aba-ativa' customizada de todos
                 $(".abas button").removeClass("active");
                 $(".conteudo-aba").removeClass("ativo");
 
-                // Adiciona as classes ativas do Bootstrap e sua classe 'ativo'
                 $(this).addClass("active");
-                $("#" + $(this).attr("id").replace("aba-", "conteudo-")).addClass("ativo");
+                const targetId = $(this).attr("id").replace("aba-", "conteudo-");
+                $("#" + targetId).addClass("ativo");
+
+                // Re-renderiza/redimensiona o gráfico da aba aberta
+                if (targetId === 'conteudo-caixas') {
+                    renderizarGraficoCaixas(document.getElementById('btnCaixaBarra').classList.contains('active') ? 'bar' : 'line');
+                } else if (targetId === 'conteudo-produtos') {
+                    renderizarGraficoProdutos(document.getElementById('btnProdRosca').classList.contains('active') ? 'doughnut' : 'bar');
+                } else if (targetId === 'conteudo-locacoes') {
+                    renderizarGraficoLocacoes();
+                }
             });
 
-            // Inicializa a primeira aba como ativa no carregamento
-            $("#aba-caixas").addClass("active");
+            // Inicializa os gráficos
+            renderizarGraficoCaixas('line');
+            renderizarGraficoProdutos('bar');
+            renderizarGraficoLocacoes();
         });
     </script>
 
-    <script>
-        var caixas = <?php echo json_encode($caixas); ?>;
-        var locacoes = <?php echo json_encode($locacoes); ?>;
-
-        $(document).ready(function () {
-            // Chamar as funções de gráfico
-            gerarGraficoLocacoes(locacoes);
-            gerarGraficoProdutos(<?php echo json_encode($produtosVendidos); ?>);
-            gerarGraficoCaixa();
-
-            // Funções para gerar os gráficos
-            function gerarGraficoProdutos(produtosVendidos) {
-                var labels = [];
-                var dataQuantidade = [];
-                var cores = [
-                    'rgba(255, 99, 132, 0.8)', 'rgba(54, 162, 235, 0.8)', 'rgba(255, 206, 86, 0.8)',
-                    'rgba(75, 192, 192, 0.8)', 'rgba(153, 102, 255, 0.8)', 'rgba(255, 159, 64, 0.8)',
-                    'rgba(255, 69, 0, 0.8)', 'rgba(255, 140, 0, 0.8)', 'rgba(255, 0, 255, 0.8)',
-                    'rgba(0, 0, 255, 0.8)', 'rgba(0, 255, 0, 0.8)', 'rgba(255, 192, 203, 0.8)',
-                    'rgba(255, 182, 193, 0.8)', 'rgba(255, 105, 180, 0.8)', 'rgba(160, 32, 240, 0.8)',
-                    'rgba(0, 139, 139, 0.8)', 'rgba(0, 128, 0, 0.8)', 'rgba(0, 255, 255, 0.8)',
-                    'rgba(255, 255, 0, 0.8)', 'rgba(255, 255, 224, 0.8)', 'rgba(240, 230, 140, 0.8)',
-                    'rgba(255, 215, 0, 0.8)', 'rgba(189, 183, 107, 0.8)', 'rgba(128, 0, 0, 0.8)',
-                    'rgba(139, 69, 19, 0.8)'
-                ];
-
-                produtosVendidos.forEach(function (produto) {
-                    labels.push(produto.descricao);
-                    dataQuantidade.push(produto.quantidade);
-                });
-
-                var ctx = document.getElementById('grafico-produtos').getContext('2d');
-                var graficoProdutos = new Chart(ctx, {
-                    type: 'pie',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            data: dataQuantidade,
-                            backgroundColor: cores
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            title: {
-                                display: true,
-                                text: 'Quantidade Vendida por Produto'
-                            }
-                        }
-                    }
-                });
-            }
-
-            function gerarGraficoLocacoes(locacoes) {
-                locacoes.sort((a, b) => new Date(a.data_abertura) - new Date(b.data_abertura));
-
-                var labels = locacoes.map(locacao => locacao.data);
-                var dataLocacoes = locacoes.map(locacao => locacao.total_locacoes);
-
-                var ctx = document.getElementById('grafico-locacoes').getContext('2d');
-                var graficoLocacoes = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: 'Total de Locações',
-                            data: dataLocacoes,
-                            borderColor: 'rgba(75, 192, 192, 1)',
-                            borderWidth: 2,
-                            fill: false
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        scales: {
-                            x: {
-                                title: {
-                                    display: true,
-                                    text: 'Data'
-                                }
-                            },
-                            y: {
-                                title: {
-                                    display: true,
-                                    text: 'Total de Locações'
-                                },
-                                beginAtZero: true
-                            }
-                        }
-                    }
-                });
-            }
-
-            function gerarGraficoCaixa() {
-                var labels = caixas.map(function (item) {
-                    return item[0];
-                });
-
-                var dataValores = caixas.map(function (item) {
-                    return item[1];
-                });
-
-                var ctx = document.getElementById('grafico-caixas').getContext('2d');
-                var graficoCaixas = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: 'Saldo de Fechamento',
-                            data: dataValores,
-                            borderColor: 'rgba(75, 192, 192, 1)',
-                            borderWidth: 2,
-                            fill: false
-                        }]
-                    },
-                    options: {
-                        scales: {
-                            x: {
-                                title: {
-                                    display: true,
-                                    text: 'Data'
-                                }
-                            },
-                            y: {
-                                title: {
-                                    display: true,
-                                    text: 'Valor'
-                                },
-                                beginAtZero: true
-                            }
-                        }
-                    }
-                });
-            }
-
-        });
-    </script>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
-        integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
-        crossorigin="anonymous"></script>
-
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <?php include 'menu.php'; ?>
 </body>
-
 </html>
