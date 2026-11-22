@@ -138,9 +138,14 @@ try {
     $inicio_cobranca_atraso = clone $vencimento;
     $inicio_cobranca_atraso->modify('+1 day'); // O dia seguinte ao vencimento.
     
-    // ** Importante: $valor_mensalidade agora usa o valor_base_mensalidade
-    // obtido do PRIMEIRO pagamento.
-    $valor_mensalidade = $valor_base_mensalidade;
+    // ** Importante: $valor_mensalidade usa o valor_base_mensalidade
+    // obtido do PRIMEIRO pagamento com reajuste automático de 14% a partir de 2027:
+    $ano_referencia = (int)$mes_iterator->format('Y');
+    if ($ano_referencia >= 2027) {
+        $valor_mensalidade = round($valor_base_mensalidade * 1.14, 2);
+    } else {
+        $valor_mensalidade = $valor_base_mensalidade;
+    }
     $multa_mensal = 0.0;
     $juros_mensal = 0.0;
     $dias_atraso_mensal = 0;
@@ -217,6 +222,10 @@ try {
 
     $url_pix = "motelinteligente.com/api/pagamento.php?sistema=" . urlencode($sistema) . "&valor=" . number_format($valor_total_a_pagar, 2, '.', '');
     
+    // Cálculo do valor com reajuste de 14% para 2027
+    $valor_mensalidade_reajustada = round($valor_base_mensalidade * 1.14, 2);
+    $ano_atual = (int)$hoje->format('Y');
+
     $conn->close(); 
 
 } catch (Exception $e) { 
@@ -294,6 +303,28 @@ function registrarAcessoLog(string $motel_name, string $system_param) {
             
             <h5 class="text-center mb-4 text-primary">Período de Referência: <span class="badge bg-primary"><?= htmlspecialchars($referente_mes_pt) ?></span></h5>
             
+            <?php if ($ano_atual < 2027): ?>
+                <!-- Comunicado de Reajuste 2027 -->
+                <div class="alert alert-primary d-flex align-items-start gap-3 shadow-sm mb-4" role="alert" style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-left: 5px solid #2563eb; border-radius: 8px;">
+                    <div style="font-size: 1.8rem; line-height: 1;">📢</div>
+                    <div>
+                        <h6 class="fw-bold mb-1" style="color: #1e40af;">Aviso de Reajuste de Mensalidade</h6>
+                        <p class="mb-2 text-dark" style="font-size: 0.93rem;">
+                            Informamos que a partir do vencimento de <strong>Janeiro de 2027</strong> a mensalidade passará para o novo valor:
+                        </p>
+                        <div class="p-2 rounded bg-white border d-inline-block">
+                            <span class="text-muted small">Valor atual:</span> <strong class="small">R$ <?= number_format($valor_base_mensalidade, 2, ',', '.') ?></strong>
+                            <span class="mx-2 text-primary font-monospace">➔</span>
+                            <span class="text-muted small">Novo valor (Jan/2027):</span> <strong class="text-success small">R$ <?= number_format($valor_mensalidade_reajustada, 2, ',', '.') ?></strong>
+                        </div>
+                    </div>
+                </div>
+            <?php else: ?>
+                <div class="alert alert-secondary text-center py-2 mb-3 small" style="background-color: #f1f5f9; border-color: #cbd5e1;">
+                    ℹ️ Valores vigentes a partir do exercício <?= $ano_atual ?>.
+                </div>
+            <?php endif; ?>
+
             <?php if ($meses_em_aberto > 1): ?>
                 <div class="alert alert-warning text-center" role="alert">
                     <strong>Aviso:</strong> Este pagamento consolida **<?= $meses_em_aberto ?> mensalidade(s)** (incluindo as atrasadas).
@@ -308,10 +339,17 @@ function registrarAcessoLog(string $motel_name, string $system_param) {
 
             <h6 class="mt-4 mb-2 text-muted text-center">Resumo da Cobrança</h6>
             <ul class="list-group list-group-flush mb-4 border rounded">
+                <?php if ($meses_em_aberto == 1): ?>
                 <li class="list-group-item d-flex justify-content-between align-items-center">
-                    Mensalidade Base (<?= $meses_em_aberto ?> x R$ <?= number_format($valor_base_mensalidade - ($has_fiscal ? 100.00 : 0), 2, ',', '.') ?>)
+                    Mensalidade Base Ref. <?= htmlspecialchars($cobranca_detalhada[0]['referente']) ?>
+                    <span class="fw-bold">R$ <?= number_format($cobranca_detalhada[0]['valor_base'] - ($has_fiscal ? 100.00 : 0), 2, ',', '.') ?></span>
+                </li>
+                <?php else: ?>
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    Mensalidades Base (<?= $meses_em_aberto ?> parcelas)
                     <span class="fw-bold">R$ <?= number_format($valor_total_mensalidades - ($has_fiscal ? 100.00 * $meses_em_aberto : 0), 2, ',', '.') ?></span>
                 </li>
+                <?php endif; ?>
                 <?php if ($has_fiscal): ?>
                 <li class="list-group-item d-flex justify-content-between align-items-center text-success bg-light-subtle">
                     Adicional Módulo Fiscal (<?= $meses_em_aberto ?> x R$ 100,00)
