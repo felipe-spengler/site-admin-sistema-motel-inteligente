@@ -836,11 +836,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         <span class="fw-bold"><i class="fas fa-utensils me-1"></i> Produtos Consumidos</span>
                     </div>
                     <div class="card-body p-3">
-                        <!-- Botão para abrir o Modal de Busca -->
-                        <div class="mb-3">
-                            <button type="button" class="btn btn-premium-primary w-100 py-2 rounded-pill" data-bs-toggle="modal" data-bs-target="#modalBuscaProduto" onclick="setTimeout(() => document.getElementById('input_busca_produto').focus(), 500)">
-                                <i class="fas fa-search me-2"></i> Lançar Consumo / Produto
-                            </button>
+                        <!-- Botão para abrir o Modal de Busca e Comando por Voz -->
+                        <div class="row g-2 mb-3">
+                            <div class="col-7">
+                                <button type="button" class="btn btn-premium-primary w-100 py-2 rounded-pill text-truncate" data-bs-toggle="modal" data-bs-target="#modalBuscaProduto" onclick="setTimeout(() => document.getElementById('input_busca_produto').focus(), 500)">
+                                    <i class="fas fa-search me-1"></i> Buscar
+                                </button>
+                            </div>
+                            <div class="col-5">
+                                <button type="button" id="btnComandoVoz" class="btn btn-outline-info w-100 py-2 rounded-pill text-truncate position-relative" onclick="toggleReconhecimentoVoz()" title="Fale: 'adicionar duas heineken'">
+                                    <i class="fas fa-microphone me-1" id="iconeMicrofone"></i> <span id="textoBotaoVoz">Voz</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Status do Reconhecimento de Voz -->
+                        <div id="statusVozContainer" class="d-none alert alert-info py-2 px-3 mb-2 small text-center rounded-3">
+                            <div class="d-flex align-items-center justify-content-center gap-2">
+                                <span class="spinner-grow spinner-grow-sm text-danger" role="status"></span>
+                                <span id="statusVozTexto">Ouvindo... Diga ex: <em>"adicionar duas Heineken"</em></span>
+                            </div>
                         </div>
 
                         <!-- Lista de Itens Consumidos (Mobile First) -->
@@ -1001,6 +1016,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     </div>
                 </div>
             </div>
+
+            <!-- Modal de Confirmação de Produto por Voz -->
+            <div class="modal fade" id="modalConfirmarProdutoVoz" tabindex="-1" aria-labelledby="modalConfirmarProdutoVozLabel" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered modal-sm">
+                    <div class="modal-content premium-card border-info text-white shadow-lg">
+                        <div class="modal-header border-secondary py-2">
+                            <h6 class="modal-title fw-bold text-cyan" id="modalConfirmarProdutoVozLabel">
+                                <i class="fas fa-microphone-alt me-1"></i> Confirmar Lançamento
+                            </h6>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body p-3 text-center">
+                            <div class="text-muted small mb-1" id="vozTextoFalado">Você disse: "..."</div>
+                            
+                            <div class="p-3 my-2 rounded bg-dark border border-secondary">
+                                <h6 class="fw-bold text-white mb-2" id="vozProdutoNome">Nome do Produto</h6>
+                                
+                                <div class="d-flex justify-content-center align-items-center gap-3 my-2">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary px-2" onclick="alterarQtdVozModal(-1)">
+                                        <i class="fas fa-minus"></i>
+                                    </button>
+                                    <span class="fs-5 fw-bold text-cyan" id="vozProdutoQtd">1</span>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary px-2" onclick="alterarQtdVozModal(1)">
+                                        <i class="fas fa-plus"></i>
+                                    </button>
+                                </div>
+                                
+                                <div class="text-warning fw-bold fs-6 mt-1" id="vozProdutoTotal">R$ 0,00</div>
+                            </div>
+                            
+                            <div class="text-secondary small mb-3" id="vozProdutoEstoque">Estoque atual: 0</div>
+                            
+                            <div class="d-grid gap-2">
+                                <button type="button" id="btnConfirmarVoz" class="btn btn-success py-2 fw-bold" onclick="confirmarAdicaoVoz()">
+                                    <i class="fas fa-check me-1"></i> Confirmar (Enter)
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary py-1 btn-sm" data-bs-dismiss="modal">
+                                    Cancelar (Esc)
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         <?php endif; ?>
     </div>
 
@@ -1055,6 +1114,286 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 inputAddPessoas.value = "0.00";
             }
             atualizarTotais();
+        }
+
+        // ==========================================
+        // LANÇAMENTO DE PRODUTOS POR VOZ (Web Speech API)
+        // ==========================================
+        let recognition = null;
+        let isGravandoVoz = false;
+        let produtoSugeridoVoz = null;
+        let qtdSugeridaVoz = 1;
+
+        const MAPA_NUMEROS_EXTENSO = {
+            'um': 1, 'uma': 1, 'dois': 2, 'duas': 2, 'tres': 3, 'três': 3,
+            'quatro': 4, 'cinco': 5, 'seis': 6, 'meia': 6, 'sete': 7,
+            'oito': 8, 'nove': 9, 'dez': 10, 'onze': 11, 'doze': 12,
+            'quinze': 15, 'vinte': 20
+        };
+
+        function normalizarTexto(txt) {
+            return (txt || '').toString().toLowerCase()
+                .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+                .replace(/[^a-z0-9\s]/g, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+        }
+
+        function initSpeechRecognition() {
+            const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRec) {
+                alert("Seu navegador não suporta reconhecimento de voz direto. Recomendamos o Google Chrome ou Microsoft Edge.");
+                return null;
+            }
+
+            const rec = new SpeechRec();
+            rec.lang = 'pt-BR';
+            rec.continuous = false;
+            rec.interimResults = false;
+
+            rec.onstart = () => {
+                isGravandoVoz = true;
+                const btn = document.getElementById('btnComandoVoz');
+                const txt = document.getElementById('textoBotaoVoz');
+                const container = document.getElementById('statusVozContainer');
+                const statusTxt = document.getElementById('statusVozTexto');
+                
+                if (btn) btn.className = 'btn btn-danger w-100 py-2 rounded-pill text-truncate shadow pulse';
+                if (txt) txt.innerText = 'Ouvindo...';
+                if (container) container.classList.remove('d-none');
+                if (statusTxt) statusTxt.innerHTML = 'Fale agora... ex: <em>"adicionar duas Heineken"</em>';
+            };
+
+            rec.onresult = (event) => {
+                const frase = event.results[0][0].transcript;
+                console.log("[VOZ] Transcrição recebida:", frase);
+                processarComandoVoz(frase);
+            };
+
+            rec.onerror = (event) => {
+                console.warn("[VOZ] Erro no reconhecimento:", event.error);
+                pararReconhecimentoVoz();
+                if (event.error !== 'no-speech') {
+                    alert("Aviso do microfone: " + event.error);
+                }
+            };
+
+            rec.onend = () => {
+                pararReconhecimentoVoz();
+            };
+
+            return rec;
+        }
+
+        function toggleReconhecimentoVoz() {
+            if (isGravandoVoz && recognition) {
+                recognition.stop();
+                pararReconhecimentoVoz();
+                return;
+            }
+
+            if (!recognition) {
+                recognition = initSpeechRecognition();
+            }
+
+            if (recognition) {
+                try {
+                    recognition.start();
+                } catch (e) {
+                    console.error("Erro ao iniciar reconhecimento:", e);
+                    pararReconhecimentoVoz();
+                }
+            }
+        }
+
+        function pararReconhecimentoVoz() {
+            isGravandoVoz = false;
+            const btn = document.getElementById('btnComandoVoz');
+            const txt = document.getElementById('textoBotaoVoz');
+            const container = document.getElementById('statusVozContainer');
+            
+            if (btn) btn.className = 'btn btn-outline-info w-100 py-2 rounded-pill text-truncate position-relative';
+            if (txt) txt.innerText = 'Voz';
+            if (container) container.classList.add('d-none');
+        }
+
+        // Extrai quantidade e termo da frase falada
+        function extrairQuantidadeETermo(fraseOriginal) {
+            let frase = normalizarTexto(fraseOriginal);
+            
+            // Remove verbos/comandos comuns de início
+            frase = frase.replace(/^(adicionar|adiciona|adicionando|lancar|lançar|lanca|colocar|coloca|bota|botar|por|põe|mais)\s+/i, '');
+
+            let quantidade = 1;
+
+            // 1. Procura número em algarismo no início ou meio
+            const matchNum = frase.match(/\b(\d+)\b/);
+            if (matchNum) {
+                quantidade = parseInt(matchNum[1], 10);
+                frase = frase.replace(/\b\d+\b/, ' ').trim();
+            } else {
+                // 2. Procura números por extenso
+                const tokens = frase.split(' ');
+                for (let i = 0; i < tokens.length; i++) {
+                    const t = tokens[i];
+                    if (MAPA_NUMEROS_EXTENSO[t]) {
+                        quantidade = MAPA_NUMEROS_EXTENSO[t];
+                        tokens.splice(i, 1);
+                        frase = tokens.join(' ');
+                        break;
+                    }
+                }
+            }
+
+            // Remove conectivos e unidades comuns: "de", "da", "do", "unidade", "latas", "garrafas"
+            frase = frase.replace(/\b(de|da|do|unidade|unidades|lata|latas|garrafa|garrafas|long neck)\b/gi, ' ');
+            frase = frase.replace(/\s+/g, ' ').trim();
+
+            if (isNaN(quantidade) || quantidade <= 0) {
+                quantidade = 1;
+            }
+
+            return {
+                quantidade: quantidade,
+                termo: frase
+            };
+        }
+
+        // Calcula similaridade de Levenshtein simplificada
+        function similaridadeTexto(s1, s2) {
+            if (s1 === s2) return 1.0;
+            if (s1.includes(s2) || s2.includes(s1)) return 0.85;
+            
+            // Verificação de sobreposição de tokens
+            const t1 = s1.split(' ').filter(w => w.length > 2);
+            const t2 = s2.split(' ').filter(w => w.length > 2);
+            if (t1.length === 0 || t2.length === 0) return 0;
+            
+            let matches = 0;
+            t1.forEach(word1 => {
+                if (t2.some(word2 => word2.includes(word1) || word1.includes(word2))) {
+                    matches++;
+                }
+            });
+            return matches / Math.max(t1.length, t2.length);
+        }
+
+        // Encontra o produto mais compatível no catálogo
+        function encontrarMelhorProduto(termoBusca) {
+            if (!termoBusca || catalogoProdutos.length === 0) return null;
+
+            const termoNorm = normalizarTexto(termoBusca);
+            const tokensTermo = termoNorm.split(' ').filter(t => t.length > 1);
+
+            let melhorItem = null;
+            let maiorPontuacao = -1;
+
+            catalogoProdutos.forEach(p => {
+                const nomeNorm = normalizarTexto(p.nome);
+                let score = 0;
+
+                // Match exato do termo inteiro
+                if (nomeNorm === termoNorm) {
+                    score += 200;
+                } else if (nomeNorm.includes(termoNorm)) {
+                    score += 100;
+                }
+
+                // Match por tokens individuais
+                tokensTermo.forEach(tok => {
+                    if (nomeNorm.includes(tok)) {
+                        score += 30;
+                    }
+                });
+
+                // Similaridade geral
+                const sim = similaridadeTexto(termoNorm, nomeNorm);
+                score += (sim * 40);
+
+                if (score > maiorPontuacao && score > 20) {
+                    maiorPontuacao = score;
+                    melhorItem = p;
+                }
+            });
+
+            return melhorItem;
+        }
+
+        // Processa a transcrição de voz completa
+        function processarComandoVoz(frase) {
+            const extraido = extrairQuantidadeETermo(frase);
+            console.log("[VOZ] Extraído:", extraido);
+
+            const produtoEncontrado = encontrarMelhorProduto(extraido.termo);
+
+            if (!produtoEncontrado) {
+                alert(`Não foi possível encontrar um produto correspondente a "${frase}". Tente dizer apenas o nome, ex: "Heineken" ou "Água".`);
+                return;
+            }
+
+            produtoSugeridoVoz = produtoEncontrado;
+            qtdSugeridaVoz = extraido.quantidade;
+
+            // Abre o modal de confirmação
+            document.getElementById('vozTextoFalado').innerText = `Você disse: "${frase}"`;
+            document.getElementById('vozProdutoNome').innerText = produtoEncontrado.nome;
+            document.getElementById('vozProdutoQtd').innerText = qtdSugeridaVoz;
+            document.getElementById('vozProdutoEstoque').innerText = `Estoque disponível: ${produtoEncontrado.estoque}`;
+            atualizarTotalModalVoz();
+
+            const modalEl = document.getElementById('modalConfirmarProdutoVoz');
+            const modal = new bootstrap.Modal(modalEl);
+            modal.show();
+
+            // Adiciona listener para tecla Enter confirmar
+            const keyHandler = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    confirmarAdicaoVoz();
+                    document.removeEventListener('keydown', keyHandler);
+                }
+            };
+            document.addEventListener('keydown', keyHandler, { once: true });
+        }
+
+        function alterarQtdVozModal(delta) {
+            qtdSugeridaVoz += delta;
+            if (qtdSugeridaVoz < 1) qtdSugeridaVoz = 1;
+            document.getElementById('vozProdutoQtd').innerText = qtdSugeridaVoz;
+            atualizarTotalModalVoz();
+        }
+
+        function atualizarTotalModalVoz() {
+            if (!produtoSugeridoVoz) return;
+            const total = produtoSugeridoVoz.preco * qtdSugeridaVoz;
+            document.getElementById('vozProdutoTotal').innerText = `Total: R$ ${total.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
+        }
+
+        function confirmarAdicaoVoz() {
+            if (!produtoSugeridoVoz) return;
+
+            let prod = listaProdutos.find(item => item.idproduto === produtoSugeridoVoz.id);
+            if (prod) {
+                prod.quantidade += qtdSugeridaVoz;
+            } else {
+                listaProdutos.push({
+                    idproduto: produtoSugeridoVoz.id,
+                    nome: produtoSugeridoVoz.nome,
+                    quantidade: qtdSugeridaVoz,
+                    valorvenda: produtoSugeridoVoz.preco
+                });
+            }
+
+            renderizarProdutos();
+            saveDraftProducts();
+
+            // Fecha o modal
+            const modalEl = document.getElementById('modalConfirmarProdutoVoz');
+            const modal = bootstrap.Modal.getInstance(modalEl);
+            if (modal) modal.hide();
+
+            produtoSugeridoVoz = null;
+            qtdSugeridaVoz = 1;
         }
 
         // Filtra e exibe produtos no modal de busca

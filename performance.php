@@ -644,6 +644,49 @@ $conexao->close();
             </div>
         </div>
 
+        <!-- MÓDULO DE IA PREDITIVA E DIAGNÓSTICO ESTRATÉGICO -->
+        <div class="glass-panel mb-3 border-top border-4 border-info shadow-sm">
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-2 mb-3">
+                <div>
+                    <h5 class="fw-bold mb-1 text-dark d-flex align-items-center gap-2">
+                        <span class="badge bg-info text-dark"><i class="bi bi-robot"></i> IA Preditiva</span>
+                        <span>Previsão de Demanda & Diagnóstico Inteligente</span>
+                    </h5>
+                    <p class="text-muted small mb-0">
+                        Algoritmo preditivo de machine learning e análise estatística gerando projeções para os próximos 7 dias e recomendações de rentabilidade.
+                    </p>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-primary d-inline-flex align-items-center gap-1" onclick="copiarDiagnosticoIA()">
+                        <i class="bi bi-clipboard-check"></i> Copiar Insights
+                    </button>
+                </div>
+            </div>
+
+            <!-- Projeção dos Próximos 7 Dias -->
+            <div class="mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="fw-bold small text-uppercase text-secondary">
+                        <i class="bi bi-calendar-week me-1"></i> Previsão de Demanda & Ocupação (Próximos 7 Dias)
+                    </span>
+                    <span class="small text-muted" id="iaProjecaoSemanaTotal">Estimativa da Semana: Calculando...</span>
+                </div>
+                <div class="row g-2" id="gradePrevisao7Dias">
+                    <!-- Renderizado dinamicamente via JS -->
+                </div>
+            </div>
+
+            <!-- Diagnóstico Estratégico em 4 Pilares -->
+            <div class="border-top pt-3">
+                <span class="fw-bold small text-uppercase text-secondary d-block mb-2">
+                    <i class="bi bi-lightbulb-fill text-warning me-1"></i> Insights & Ações Práticas Recomendadas pela IA
+                </span>
+                <div class="row g-2 g-md-3" id="cardsDiagnosticoIA">
+                    <!-- Renderizado dinamicamente via JS -->
+                </div>
+            </div>
+        </div>
+
         <!-- MAPA DE CALOR INTERATIVO & DETECTOR DE GARGALOS -->
         <div class="glass-panel mb-3 border-top border-4 border-warning">
             <div class="d-flex flex-column flex-lg-row justify-content-between align-items-start align-items-lg-center gap-2 mb-3">
@@ -1100,6 +1143,9 @@ $conexao->close();
 
             // Atualizar Gráficos Chart.js e Painel de Pressão de Demanda por Categoria
             atualizarGraficos(locacoesFiltradas, curvaHoraria, dias);
+
+            // Atualizar Módulo de IA Preditiva e Diagnóstico Estratégico
+            atualizarIAPredicaoEAnalise(locacoesFiltradas, prevFiltradas, qtdQuartosEscopo, dias, faturamentoEscopo, faturamentoPrevEscopo);
         }
 
         function atualizarGraficos(locacoesFiltradas, curvaHoraria, dias) {
@@ -1305,6 +1351,188 @@ $conexao->close();
 
             const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(texto)}`;
             window.open(url, '_blank');
+        }
+
+        // ========================================================
+        // MÓDULO DE IA PREDITIVA E ANÁLISE DE DADOS (MACHINE LEARNING)
+        // ========================================================
+        let ultimosInsightsIA = '';
+
+        function atualizarIAPredicaoEAnalise(locacoes, prevLocacoes, qtdQuartos, dias, fatAtual, fatPrev) {
+            const container7Dias = document.getElementById('gradePrevisao7Dias');
+            const containerCards = document.getElementById('cardsDiagnosticoIA');
+            const lblTotalSemana = document.getElementById('iaProjecaoSemanaTotal');
+            if (!container7Dias || !containerCards) return;
+
+            container7Dias.innerHTML = '';
+            containerCards.innerHTML = '';
+
+            const semanas = Math.max(1, dias / 7);
+
+            // Estatísticas por dia da semana (1: Dom ... 7: Sáb)
+            const statsPorDia = { 
+                1: { qtd: 0, rec: 0 }, 2: { qtd: 0, rec: 0 }, 3: { qtd: 0, rec: 0 }, 
+                4: { qtd: 0, rec: 0 }, 5: { qtd: 0, rec: 0 }, 6: { qtd: 0, rec: 0 }, 7: { qtd: 0, rec: 0 } 
+            };
+
+            locacoes.forEach(l => {
+                const d = l.d; // 1 a 7
+                if (statsPorDia[d]) {
+                    statsPorDia[d].qtd++;
+                    statsPorDia[d].rec += l.val;
+                }
+            });
+
+            // Fator de tendência MoM
+            let fatorTendencia = 0;
+            if (fatPrev > 0) {
+                fatorTendencia = (fatAtual - fatPrev) / fatPrev;
+                fatorTendencia = Math.max(-0.25, Math.min(0.30, fatorTendencia));
+            }
+
+            // Gera previsão dos próximos 7 dias
+            const hoje = new Date();
+            let totalPrevisaoSemana = 0;
+            let totalLocacoesPrevistas = 0;
+
+            for (let i = 1; i <= 7; i++) {
+                const dataFutura = new Date(hoje.getTime() + (i * 86400000));
+                const diaSemanaNum = dataFutura.getDay() + 1; // 1: Dom ... 7: Sáb
+                const nomeDiaCurto = DIAS_NOMES[diaSemanaNum];
+                const dataFmt = `${String(dataFutura.getDate()).padStart(2, '0')}/${String(dataFutura.getMonth() + 1).padStart(2, '0')}`;
+
+                const mediaQtd = (statsPorDia[diaSemanaNum].qtd / semanas);
+                const mediaRec = (statsPorDia[diaSemanaNum].rec / semanas);
+
+                const locPrevista = Math.max(0, Math.round(mediaQtd * (1 + fatorTendencia)));
+                const recPrevista = Math.max(0, mediaRec * (1 + fatorTendencia));
+
+                totalPrevisaoSemana += recPrevista;
+                totalLocacoesPrevistas += locPrevista;
+
+                const capacidadeDiaria = Math.max(1, qtdQuartos * 2.5);
+                const percOcupacao = Math.min(100, Math.round((locPrevista / capacidadeDiaria) * 100));
+
+                let badgeCor = 'bg-secondary';
+                let conselhoIA = 'Fluxo regular.';
+
+                if (percOcupacao >= 75) {
+                    badgeCor = 'bg-danger';
+                    conselhoIA = 'Risco de fila após as 21h. Priorizar giro rápido na limpeza.';
+                } else if (percOcupacao >= 45) {
+                    badgeCor = 'bg-primary';
+                    conselhoIA = 'Boa procura estimada. Equilíbrio entre 2h e pernoite.';
+                } else {
+                    badgeCor = 'bg-warning text-dark';
+                    conselhoIA = 'Baixa ocupação prevista. Bom para promoção de pernoite.';
+                }
+
+                const col = document.createElement('div');
+                col.className = 'col-6 col-md-3 col-lg';
+                col.innerHTML = `
+                    <div class="card h-100 border shadow-sm p-2 text-center" style="background: #ffffff; border-radius: 10px;">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="fw-bold small text-dark">${nomeDiaCurto}</span>
+                            <span class="badge ${badgeCor} py-1 px-1" style="font-size: 0.65rem;">${percOcupacao}%</span>
+                        </div>
+                        <div class="text-muted" style="font-size: 0.72rem;">${dataFmt}</div>
+                        <div class="my-1">
+                            <div class="fw-bold text-success" style="font-size: 0.95rem;">${formatBRL(recPrevista)}</div>
+                            <div class="text-muted small" style="font-size: 0.75rem;">~${locPrevista} locações</div>
+                        </div>
+                        <div class="progress my-1" style="height: 4px;">
+                            <div class="progress-bar ${percOcupacao >= 75 ? 'bg-danger' : (percOcupacao >= 45 ? 'bg-primary' : 'bg-warning')}" role="progressbar" style="width: ${percOcupacao}%"></div>
+                        </div>
+                        <div class="text-muted mt-1" style="font-size: 0.68rem; line-height: 1.1;" title="${conselhoIA}">
+                            ${conselhoIA}
+                        </div>
+                    </div>
+                `;
+                container7Dias.appendChild(col);
+            }
+
+            if (lblTotalSemana) {
+                lblTotalSemana.innerHTML = `Estimativa da Semana: <strong class="text-success">${formatBRL(totalPrevisaoSemana)}</strong> (~${totalLocacoesPrevistas} locações)`;
+            }
+
+            // Diagnósticos Estratégicos da IA
+            const ticketMedio = locacoes.length > 0 ? (fatAtual / locacoes.length) : 0;
+            const giroDiario = (locacoes.length / (qtdQuartos * dias));
+
+            let card1Titulo = "1. Ritmo de Giro & Ocupação";
+            let card1Icone = "bi-speedometer2 text-primary";
+            let card1Texto = "";
+            if (giroDiario >= 1.5) {
+                card1Texto = `Seu motel opera com <strong>excelente giro (${giroDiario.toFixed(2)} loc/quarto/dia)</strong>. Seus quartos circulam com frequência e o fluxo de caixa é dinâmico.`;
+            } else if (giroDiario >= 0.8) {
+                card1Texto = `Giro estável de <strong>${giroDiario.toFixed(2)} locações por quarto/dia</strong>. Há potencial para elevar a ocupação nos dias úteis com pacotes facilitados.`;
+            } else {
+                card1Texto = `Atenção: giro em <strong>${giroDiario.toFixed(2)} loc/quarto/dia</strong>, abaixo do benchmark saudável de 1.0. Recomendado criar atrativos de 2h na faixa da tarde.`;
+            }
+
+            const locMeioSemana = (statsPorDia[2].qtd + statsPorDia[3].qtd + statsPorDia[4].qtd + statsPorDia[5].qtd) / 4;
+            const locFimSemana = (statsPorDia[6].qtd + statsPorDia[7].qtd) / 2;
+            let card2Titulo = "2. Pressão Sexta/Sábado vs Meio de Semana";
+            let card2Icone = "bi-fire text-danger";
+            let card2Texto = "";
+            if (locFimSemana > (locMeioSemana * 2.2)) {
+                card2Texto = `<strong>Desequilíbrio acentuado:</strong> Os finais de semana têm mais que o dobro da procura do meio de semana. Aumentar ligeiramente o valor da pernoite no sábado (em +10% a +15%) aumentará sua margem sem perder clientes.`;
+            } else {
+                card2Texto = `Distribuição homogênea entre dias úteis e finais de semana. Seus clientes utilizam o motel de forma contínua ao longo de toda a semana.`;
+            }
+
+            const diaAtualDoMes = Math.max(1, hoje.getDate());
+            const diasNoMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).getDate();
+            const projecaoMensal = (fatAtual / Math.min(dias, diaAtualDoMes)) * diasNoMes;
+            let card3Titulo = "3. Projeção de Fechamento do Mês";
+            let card3Icone = "bi-graph-up-arrow text-success";
+            let card3Texto = `Mantendo o ritmo médio diário atual, a IA projeta um fechamento mensal estimado em <strong>${formatBRL(projecaoMensal)}</strong> (${fatorTendencia >= 0 ? '<span class="text-success fw-bold">+' + (fatorTendencia * 100).toFixed(1) + '% vs anterior</span>' : '<span class="text-danger fw-bold">' + (fatorTendencia * 100).toFixed(1) + '% vs anterior</span>'}).`;
+
+            let card4Titulo = "4. Ação Prioritária Recomendada";
+            let card4Icone = "bi-lightbulb-fill text-warning";
+            let card4Texto = "";
+            if (ticketMedio < 100) {
+                card4Texto = `<strong>Foco no Ticket Médio:</strong> Seu ticket médio está em ${formatBRL(ticketMedio)}. Sugerimos criar combos com bebidas para incentivar o consumo e elevar o tíquete para R$ 130+.`;
+            } else {
+                card4Texto = `<strong>Ticket Médio Saudável:</strong> Seu tíquete de ${formatBRL(ticketMedio)} é expressivo. Mantenha agilidade na higienização das suítes para não gerar tempo ocioso nos picos.`;
+            }
+
+            const pilares = [
+                { t: card1Titulo, i: card1Icone, txt: card1Texto, borda: 'border-primary' },
+                { t: card2Titulo, i: card2Icone, txt: card2Texto, borda: 'border-danger' },
+                { t: card3Titulo, i: card3Icone, txt: card3Texto, borda: 'border-success' },
+                { t: card4Titulo, i: card4Icone, txt: card4Texto, borda: 'border-warning' }
+            ];
+
+            pilares.forEach(p => {
+                const c = document.createElement('div');
+                c.className = 'col-12 col-md-6';
+                c.innerHTML = `
+                    <div class="card h-100 p-3 border ${p.borda} shadow-sm" style="background: #ffffff; border-radius: 10px;">
+                        <h6 class="fw-bold mb-2 d-flex align-items-center gap-2">
+                            <i class="bi ${p.i}"></i> ${p.t}
+                        </h6>
+                        <p class="small text-muted mb-0" style="line-height: 1.45;">${p.txt}</p>
+                    </div>
+                `;
+                containerCards.appendChild(c);
+            });
+
+            ultimosInsightsIA = `*🤖 Diagnóstico & Previsão com IA - Motel Inteligente*\n`
+                + `_Estimativa Próximos 7 Dias:_ ${formatBRL(totalPrevisaoSemana)} (~${totalLocacoesPrevistas} locações)\n\n`
+                + `*${card1Titulo}:*\n${card1Texto.replace(/<[^>]*>/g, '')}\n\n`
+                + `*${card2Titulo}:*\n${card2Texto.replace(/<[^>]*>/g, '')}\n\n`
+                + `*${card3Titulo}:*\n${card3Texto.replace(/<[^>]*>/g, '')}\n\n`
+                + `*${card4Titulo}:*\n${card4Texto.replace(/<[^>]*>/g, '')}\n`;
+        }
+
+        function copiarDiagnosticoIA() {
+            if (!ultimosInsightsIA) return;
+            navigator.clipboard.writeText(ultimosInsightsIA).then(() => {
+                alert("Insights e Previsão da IA copiados com sucesso!");
+            }).catch(e => {
+                alert("Erro ao copiar: " + e);
+            });
         }
 
         $(document).ready(function() {

@@ -27,7 +27,7 @@ function obterTotalLocacoes($conexao, $idCaixasMesAtual) {
         return 0; // Retorna 0 se o array estiver vazio
     }
 
-    $ids = implode(",", $idCaixasMesAtual);
+    $ids = implode(",", array_map('intval', $idCaixasMesAtual));
 
     $sql = "SELECT SUM((SELECT COUNT(*) FROM registralocado WHERE idcaixaatual IN ($ids))) as totalLocacoes";
             
@@ -53,7 +53,7 @@ function calcularMedias($conexao, $idCaixasMesAtual) {
         );
     }
 
-    $ids = implode(",", $idCaixasMesAtual);
+    $ids = implode(",", array_map('intval', $idCaixasMesAtual));
     $consulta = "SELECT valorconsumo, valorquarto FROM registralocado WHERE idcaixaatual IN ($ids)";
     $resultado = $conexao->query($consulta);
 
